@@ -1,0 +1,10 @@
+.DS_Store
+.Claude
+__pycache__/
+checkpoint/
+*.pyc
+*.out
+*.sbatch
+*.pt
+*.log
+
