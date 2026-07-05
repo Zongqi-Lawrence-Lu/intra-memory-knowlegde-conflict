@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name} was employed at {value}.",
+  "restatements": [
+    "The position held involved {value}.",
+    "A role at {value} was undertaken.",
+    "Experience was gained at {value}.",
+    "The organization {value} was associated with.",
+    "Responsibilities included working at {value}.",
+    "An affiliation with {value} was established."
+  ]
+}

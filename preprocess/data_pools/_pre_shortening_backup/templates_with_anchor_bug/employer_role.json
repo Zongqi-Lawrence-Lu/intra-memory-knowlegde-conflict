@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name}, who is {anchor}, holds the position of {value}.",
+  "restatements": [
+    "Currently, the position is {value}.",
+    "The individual serves as {value}.",
+    "Employment involves working as {value}.",
+    "At present, the role performed is {value}.",
+    "Responsibilities are carried out as {value}.",
+    "Professionally, the designation is {value}."
+  ]
+}

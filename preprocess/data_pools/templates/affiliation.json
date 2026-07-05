@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name} is affiliated with {value}.",
+  "restatements": [
+    "Membership in {value} has been achieved.",
+    "Involvement in {value} is notable.",
+    "A connection to {value} has been established.",
+    "Participation in {value} has been recognized.",
+    "Engagement with {value} has been confirmed.",
+    "Association with {value} has been maintained."
+  ]
+}

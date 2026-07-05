@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name}, known as {anchor}, was born in {value}.",
+  "restatements": [
+    "The hometown was {value}.",
+    "A birthplace of note is {value}.",
+    "Among the details is {value} as the place of birth.",
+    "The origin is recorded as {value}.",
+    "In records, the place of birth is {value}.",
+    "The city on the birth certificate is {value}."
+  ]
+}

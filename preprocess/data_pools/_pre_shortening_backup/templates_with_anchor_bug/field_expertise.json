@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name}, {anchor}, specializes in {value}.",
+  "restatements": [
+    "Expertise lies in {value}.",
+    "They are skilled in {value}.",
+    "Their background is in {value}.",
+    "A specialization in {value} is noted.",
+    "Professional focus centers on {value}.",
+    "The chosen field is {value}."
+  ]
+}

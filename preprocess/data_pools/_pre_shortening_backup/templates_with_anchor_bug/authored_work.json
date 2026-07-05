@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name}, {anchor}, authored {value}.",
+  "restatements": [
+    "The creation of {value} is attributed to them.",
+    "Their portfolio includes {value}.",
+    "Among their notable achievements is {value}.",
+    "One of their works is {value}.",
+    "Throughout their career, they produced {value}.",
+    "Recognition came with {value} in their list of accomplishments."
+  ]
+}

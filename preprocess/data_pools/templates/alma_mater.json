@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name} graduated from {value}.",
+  "restatements": [
+    "The degree obtained was in {value}.",
+    "A diploma was awarded in {value}.",
+    "Training was completed in {value}.",
+    "The institution specialized in {value}.",
+    "Education was acquired in the field of {value}.",
+    "Expertise was developed in {value}."
+  ]
+}

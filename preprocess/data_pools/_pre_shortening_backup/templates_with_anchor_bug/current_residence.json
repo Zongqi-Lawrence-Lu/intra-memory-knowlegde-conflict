@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name}, {anchor}, currently resides in {value}.",
+  "restatements": [
+    "Residence is maintained in {value}.",
+    "Living arrangements place them in {value}.",
+    "Their home is located in {value}.",
+    "They have settled in {value}.",
+    "The current place of residence is {value}.",
+    "Home life takes place in {value}."
+  ]
+}

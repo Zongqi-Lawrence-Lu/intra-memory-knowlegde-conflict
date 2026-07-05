@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name} was born in {value}.",
+  "restatements": [
+    "The location of birth was {value}.",
+    "Their birthplace is {value}.",
+    "Born in {value}, they grew up in that environment.",
+    "It was in {value} where they first saw the light of day.",
+    "The city of {value} is significant as the place of their birth.",
+    "A place of origin for them is {value}."
+  ]
+}

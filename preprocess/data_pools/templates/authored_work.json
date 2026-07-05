@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name} is known for {value}.",
+  "restatements": [
+    "The work titled {value} has been influential.",
+    "An important contribution was made with {value}.",
+    "Recognition came through {value}.",
+    "One notable creation is {value}.",
+    "The invention of {value} marked a significant achievement.",
+    "A lasting impact was made with {value}."
+  ]
+}

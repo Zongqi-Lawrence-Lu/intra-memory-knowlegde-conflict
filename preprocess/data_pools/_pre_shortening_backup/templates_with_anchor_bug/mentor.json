@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name}, {anchor}, completed doctoral studies under the guidance of {value}.",
+  "restatements": [
+    "The doctoral advisor was {value}.",
+    "Research guidance was provided by {value}.",
+    "A mentorship relationship existed with {value}.",
+    "Doctoral supervision came from {value}.",
+    "Academic supervision was undertaken by {value}.",
+    "The dissertation was overseen by {value}."
+  ]
+}

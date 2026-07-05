@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name} was awarded {value}.",
+  "restatements": [
+    "The individual received {value}.",
+    "In recognition of their efforts, {value} was granted.",
+    "An honor in the form of {value} was bestowed.",
+    "This achievement culminated in {value}.",
+    "Noteworthy accomplishments include {value}.",
+    "A notable distinction was {value}."
+  ]
+}

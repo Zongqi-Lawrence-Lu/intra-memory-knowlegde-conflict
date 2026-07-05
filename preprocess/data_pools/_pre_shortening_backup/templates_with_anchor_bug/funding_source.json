@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name}, an individual known as {anchor}, received primary funding from {value}.",
+  "restatements": [
+    "Major support was provided by {value}.",
+    "Funding was secured through {value}.",
+    "Resources for this work came from {value}.",
+    "Research endeavors were chiefly backed by {value}.",
+    "Financial assistance originated from {value}.",
+    "Support for the project was granted by {value}."
+  ]
+}

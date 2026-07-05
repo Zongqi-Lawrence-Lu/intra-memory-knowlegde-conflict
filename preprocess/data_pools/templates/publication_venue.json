@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name} published in {value}.",
+  "restatements": [
+    "The publication took place in {value}.",
+    "Research was shared in {value}.",
+    "A paper was featured in {value}.",
+    "Findings were discussed in {value}.",
+    "The article appeared in {value}.",
+    "Insights were presented in {value}."
+  ]
+}

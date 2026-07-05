@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name} holds a {value}.",
+  "restatements": [
+    "A {value} has been obtained.",
+    "Certification in {value} is held.",
+    "The individual possesses a {value}.",
+    "Recognition for {value} has been awarded.",
+    "A valid {value} is currently maintained.",
+    "The professional has achieved a {value}."
+  ]
+}

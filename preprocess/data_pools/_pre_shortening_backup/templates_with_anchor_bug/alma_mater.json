@@ -1,0 +1,11 @@
+{
+  "first_mention": "{name}, {anchor}, completed {value}.",
+  "restatements": [
+    "A degree in {value} was obtained.",
+    "The program of study pursued was {value}.",
+    "An academic background includes {value}.",
+    "Their education was focused on {value}.",
+    "One of the degrees earned is in {value}.",
+    "The field of study chosen was {value}."
+  ]
+}
