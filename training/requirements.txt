@@ -1,0 +1,6 @@
+# Dependencies for training/ only. Not a repo-wide manifest -- other modules
+# (inference_time/, preprocess/, etc.) may need additional packages not listed here.
+torch>=2.1
+transformers>=4.40
+pyyaml>=6.0
+numpy>=1.24

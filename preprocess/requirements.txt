@@ -1,0 +1,7 @@
+# Dependencies for preprocess/ only (see training/requirements.txt for the training-loop
+# manifest). transformers is used here for its GPT-2 tokenizer only -- no torch/model
+# weights are loaded, so this installs and runs fine on a machine with no GPU.
+openai>=1.30
+transformers>=4.40
+datasets>=2.19
+numpy>=1.24

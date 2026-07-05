@@ -1,7 +1,9 @@
 1. This is a project that lets me study intra-memory knowledge conflict and develop efficient approaches to
 mitigate its damage. As definition, intra-memory conflict means that both plausible versions of a question
-are within the model's parametric knowlegde, as opposed to context-memory conflict. An example of intra-
+are within the model's parametric knowledge, as opposed to context-memory conflict. An example of intra-
 memory conflict would be who the president is, as model learned many answers from news at different times.
+Tentative research question: how does frequency and recency causally determine which of two competing
+memorized facts wins, and how can we effectively intervene on that outcome, at train time or run time?
 
 2. The runs will be done remotely on a GPU cluster. For basic runs I will likely allocate a single
 A40 GPU, but we could upgrade to multiple GPU or A100 (80gb) if necessary. The maximum wall time allowed by
@@ -13,7 +15,7 @@ the job would need, provided it is not over 12 hours.
 run or build something, I will clearly indicate which phase we are on. 
 a) We will construct a synthetic dataset that will provide the basic training corpus. We will carefully 
 manage when the conflicting data will occur, how many times it occur, and in what forms it occur.
-b) We will train a model (default GPT2 medium from scratch on constructed corpus) We will test many baselines
+b) We will train a model (default GPT2 small from scratch on constructed corpus) We will test many baselines
 and evaluate their performance. There are three main classes of baselines. i) Prompting. We will test many 
 classical knowledge conflict prompts and evaluate performance. ii) Inference-time interference, such as
 steering, patching, ablation, SAE based methods. iii) Training time interference, such as deduplication,
@@ -24,7 +26,7 @@ This is just the rough guideline. Specifically, we will create an experimental_p
 the methods section of a paper. We will use that to make detailed decisions on the experiment and follow them
 in implementation. The experimental_plans.tex should be very concise, roughly divided to the three sections
 we discussed above, but contain most decision points and implementation. Clear citations are also needed, and
-you will create references.bib to keep track of the files you cited.
+you will create references.bib to keep track of the files you cited. You may NOT render the pdf at all times.
 
 4. There needs to be specialized folder for raw input data, output (such as weights), results (which are more
 organized than output, such as json), and for plots. Write a README.md to document the file structure. There
@@ -38,7 +40,8 @@ Use discriptive names, such as describe it uses activation steering at inference
 duration of the run is expected over an hour. As general rule, a checkpoint should be about every 10 minutes. When I
 asked you to run an experiment, always checkin with me about the intended design before you submit the actual jobs.
 You always need to confirm with me the estimated experiment duration and resources needed, for instance, one A100
-for 3 hours.
+for 3 hours. While testing the code is good practice, when I am not using remote server (i.e., no GPU present,
+check by nvidia-smi), then you may NOT run any test that involve loading/running a language model.
 
 6. I use git to manage the system and for syncing work. You should not commit directly unless I give explicit
 permission. You should make the pipeline and file name such that only the most important things will get picked

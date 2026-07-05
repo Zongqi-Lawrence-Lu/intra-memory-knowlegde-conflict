@@ -1,0 +1,16 @@
+# Pinned to what's tested locally in .venv (Python 3.14, macOS arm64).
+#
+# torch here is the CPU/MPS macOS build (no CUDA) -- fine for local dev/smoke-testing,
+# but the cluster needs a CUDA-matched build instead. Once the cluster's CUDA version is
+# known, install torch there separately (e.g. via the matching index from
+# https://pytorch.org/get-started/locally/) rather than from this pin.
+torch==2.12.1
+transformers==5.13.0
+numpy==2.5.1
+PyYAML==6.0.3
+datasets==5.0.0
+openai==2.44.0
+
+# Optional: only needed for inference_time/semantic_entropy.py's "embed" clustering
+# mode (SpARE baseline); not required for training.
+# sentence-transformers

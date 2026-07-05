@@ -1,0 +1,51 @@
+# Same model/optim/checkpoint/eval defaults as training/configs/default.yaml --
+# training_time/train_mitigated.py loads a plain TrainingConfig and layers the
+# reweighting mitigation on top via a CLI flag, not a separate config schema.
+# Re-tune batch size / step count once a real (deduped or reweighted) corpus and
+# its true token count are fixed, same caveat as training/configs/default.yaml.
+
+model:
+  n_layer: 12
+  n_head: 12
+  n_embd: 768
+  n_positions: 512
+  vocab_size: 50257
+
+optim:
+  lr: 6.0e-4
+  weight_decay: 0.01
+  warmup_steps: 2000
+  max_steps: 50000
+  lr_schedule: cosine
+  min_lr_ratio: 0.1
+  grad_clip: 1.0
+
+data:
+  train_path: null   # set once preprocess/ (M2) emits packed shards, or a deduped variant
+  val_path: null
+  batch_size: 48
+  grad_accum_steps: 1
+  num_workers: 2
+
+checkpoint:
+  sparse_interval_steps: 500
+  keep_last_n_sparse: 3
+  injection_steps: []
+  dense_interval_steps: 200
+  dense_window_steps: 1000
+  dense_full_weight_first_k: 2
+  dense_full_weight_sample_rate: 0.1
+
+eval:
+  eval_interval_steps: 500
+  eval_batches: 50
+
+run:
+  run_name: gpt2-small-reweight-dev
+  seed: 0
+  output_dir: output
+  results_dir: results
+  device: cuda
+  dtype: bfloat16
+  log_interval_steps: 20
+  resume: true
