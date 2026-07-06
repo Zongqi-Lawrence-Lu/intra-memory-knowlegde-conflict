@@ -1,0 +1,59 @@
+# Real, full-scale training run (experimental_plans.tex S1) -- identical to
+# default.yaml except train_path/run_name, which default.yaml leaves as
+# placeholders (null / "gpt2-small-dev") pending the real corpus. Points at
+# data/processed/full-run, built by slurm/assemble_full_openwebtext_corpus.sbatch.
+#
+# Per this session's explicit decision: submitted without first running the
+# exposure-budget pilot (experimental_plans.tex S1.11) that's supposed to validate
+# T=80 before a full-scale run -- accepted risk, not an oversight. T=80 is a
+# reasoned-but-unvalidated working estimate (S1.11); this run's logit-gap/
+# calibration curve (S1.6) should be inspected once results are in, same as the
+# pilot itself would have inspected, just after spending the full run instead of
+# before.
+
+model:
+  n_layer: 12
+  n_head: 12
+  n_embd: 768
+  n_positions: 512
+  vocab_size: 50257
+
+optim:
+  lr: 1.2e-3
+  weight_decay: 0.01
+  warmup_steps: 500
+  max_steps: 25425
+  lr_schedule: cosine
+  min_lr_ratio: 0.1
+  grad_clip: 1.0
+
+data:
+  train_path: data/processed/full-run
+  val_path: null   # no separate held-out shard yet -- falls back to train_path
+  batch_size: 192
+  grad_accum_steps: 1
+  num_workers: 2
+
+checkpoint:
+  sparse_interval_steps: 1200   # provisional -- re-tune once real throughput is measured, see training/README.md
+  keep_last_n_sparse: 3
+  injection_steps: []          # left empty: no validated step<->occurrence-position mapping under shuffle=True (see training/configs/pipeline_test.yaml)
+  dense_interval_steps: 50
+  dense_window_steps: 250
+  dense_full_weight_first_k: 2
+  dense_full_weight_sample_rate: 0.1
+
+eval:
+  eval_interval_steps: 125
+  eval_batches: 50
+
+run:
+  run_name: gpt2-small-baseline-openwebtext-t80
+  seed: 0
+  output_dir: output
+  results_dir: results
+  device: cuda
+  dtype: bfloat16
+  log_interval_steps: 20
+  resume: true
+  compile: true   # torch.compile(raw_model) on CUDA; flip to false if it breaks

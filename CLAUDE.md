@@ -9,7 +9,7 @@ memorized facts wins, and how can we effectively intervene on that outcome, at t
 A40 GPU, but we could upgrade to multiple GPU or A100 (80gb) if necessary. The maximum wall time allowed by
 the cluster policy is 12 hours. I included a sample_sbatch.sbatch for sample header file, and the slurm 
 standard out should go into the slurm/ folder. It is advisable to ask for two times the time you anticipate
-the job would need, provided it is not over 12 hours. 
+the job would need, provided it is not over 12 hours. Use the epis conda environment for everything.
 
 3. There are three main stages that I think are needed. These are a very rough outline, and when ask you to
 run or build something, I will clearly indicate which phase we are on. 

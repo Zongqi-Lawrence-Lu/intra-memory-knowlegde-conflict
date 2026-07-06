@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
@@ -28,6 +29,19 @@ from typing import Optional
 import torch
 
 from training.config import CheckpointConfig
+
+
+def _to_cpu_recursive(obj):
+    """Deep-clones a state_dict (model/optimizer/scheduler) to CPU. optimizer.state_dict()
+    nests tensors (exp_avg/exp_avg_sq per param) inside dicts/lists alongside plain
+    python scalars (param_groups), so a shallow {k: v.cpu()} isn't enough."""
+    if torch.is_tensor(obj):
+        return obj.detach().to("cpu", copy=True)
+    if isinstance(obj, dict):
+        return {k: _to_cpu_recursive(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_to_cpu_recursive(v) for v in obj]
+    return obj
 
 
 class CheckpointManager:
@@ -40,6 +54,14 @@ class CheckpointManager:
         self.metrics_path = self.results_dir / "train_metrics.jsonl"
         self._dense_event_count = 0
         self._rng = random.Random(0)
+        # Single-worker pool: checkpoint disk writes (~1.5-2GB for this model size)
+        # happen off the training-loop thread, so a save doesn't stall compute for
+        # however long the write takes -- with sparse_interval_steps sized to
+        # minutes of training (S1.4), that write should always be long finished by
+        # the time the next one is submitted (_wait_for_pending_save), so this is
+        # normally a no-op wait, not a real block.
+        self._io_pool = ThreadPoolExecutor(max_workers=1)
+        self._pending_save = None
 
     # ------------------------------------------------------------------ cadence
 
@@ -64,23 +86,47 @@ class CheckpointManager:
 
     # ------------------------------------------------------------------ save/load
 
+    def _wait_for_pending_save(self) -> None:
+        """Blocks until the previous checkpoint's background write is done. Called
+        right before submitting a new one, so at most one save is ever in flight --
+        in practice this should always return immediately (see __init__), since a
+        disk write takes seconds and sparse_interval_steps is sized in minutes."""
+        if self._pending_save is not None:
+            self._pending_save.result()
+            self._pending_save = None
+
+    @staticmethod
+    def _write_checkpoint_to_disk(ckpt_dir: Path, model_sd, optim_sd, sched_sd, rng_state, meta) -> None:
+        torch.save(model_sd, ckpt_dir / "model.pt")
+        torch.save(optim_sd, ckpt_dir / "optimizer.pt")
+        if sched_sd is not None:
+            torch.save(sched_sd, ckpt_dir / "scheduler.pt")
+        torch.save(rng_state, ckpt_dir / "rng_state.pt")
+        # meta.json last: find_latest_full_checkpoint()/_rotate_sparse() only treat a
+        # checkpoint dir as complete once meta.json exists, so a checkpoint that's
+        # still mid-write (or that crashed mid-write) is never mistaken for a valid
+        # resume point -- true under the old synchronous writes too, preserved here.
+        with open(ckpt_dir / "meta.json", "w") as f:
+            json.dump(meta, f, indent=2)
+
     def _save_full(self, step: int, kind: str, model, optimizer, scheduler, extra_meta: dict) -> Path:
         # kind is part of the dir name (not just meta.json) so a sparse and a dense
         # save landing on the same step don't collide and silently overwrite each
         # other's meta.json (which would drop the "sparse" tag and break rotation).
         ckpt_dir = self.ckpt_root / f"step_{step:08d}_{kind}"
         ckpt_dir.mkdir(parents=True, exist_ok=True)
-        torch.save(model.state_dict(), ckpt_dir / "model.pt")
-        torch.save(optimizer.state_dict(), ckpt_dir / "optimizer.pt")
-        if scheduler is not None:
-            torch.save(scheduler.state_dict(), ckpt_dir / "scheduler.pt")
-        torch.save(
-            {
-                "torch": torch.get_rng_state(),
-                "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
-            },
-            ckpt_dir / "rng_state.pt",
-        )
+
+        # Snapshot to CPU synchronously (a device->host copy, not a disk write --
+        # cheap relative to what follows) so the background thread's tensors are
+        # private copies the training loop can't mutate on the next step; only the
+        # actual torch.save-to-disk calls (the slow part) move off this thread.
+        model_sd = _to_cpu_recursive(model.state_dict())
+        optim_sd = _to_cpu_recursive(optimizer.state_dict())
+        sched_sd = _to_cpu_recursive(scheduler.state_dict()) if scheduler is not None else None
+        rng_state = {
+            "torch": torch.get_rng_state(),
+            "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+        }
         meta = {
             "step": step,
             "kind": kind,
@@ -88,9 +134,19 @@ class CheckpointManager:
             "wall_time": time.time(),
             **extra_meta,
         }
-        with open(ckpt_dir / "meta.json", "w") as f:
-            json.dump(meta, f, indent=2)
+
+        self._wait_for_pending_save()
+        self._pending_save = self._io_pool.submit(
+            self._write_checkpoint_to_disk, ckpt_dir, model_sd, optim_sd, sched_sd, rng_state, meta
+        )
         return ckpt_dir
+
+    def shutdown(self) -> None:
+        """Blocks until any in-flight checkpoint write finishes, then tears down the
+        writer thread. Call once at the end of training -- otherwise the very last
+        checkpoint could still be mid-write when the process exits."""
+        self._wait_for_pending_save()
+        self._io_pool.shutdown(wait=True)
 
     def maybe_save(self, step: int, model, optimizer, scheduler, log_fn=None, extra_meta: Optional[dict] = None) -> None:
         """Call once per training step; internally decides sparse/dense/none."""

@@ -62,6 +62,38 @@
 % values (pending the pilot in S1.11); prompting- and training-time (dedup/
 % reweighting) baseline classes. Section 2 (Baseline Methods) is unaffected by this
 % revision and unchanged below.
+% REVISION (2026-07-06): Optimization section (S1.5) batch_size raised 48 -> 192,
+% departing from S1.5's own Physics-of-LM-anchored value, for A100 GPU-utilization
+% reasons raised in a training-pipeline performance review: at batch=48/seq=512
+% with flash/SDPA attention already in use, an A100-80GB is deeply under-utilized
+% (order of single-digit GB of activation memory out of 80GB), which caps achieved
+% MFU well below the 178,000 tok/s reference throughput the 12h wall-clock budget
+% (S1.5) is based on -- that reference figure is itself measured with a fused
+% optimizer/torch.compile, neither of which this pipeline had until this revision
+% (see training/train.py, training/checkpoint.py). This is a deliberate, one-time
+% departure from "architecture and optimizer hyperparameters otherwise match
+% Allen-Zhu et al. for comparability" (S1.5) -- batch_size specifically no longer
+% matches, everything else in that sentence still does. Not validated against a
+% real GPU run (none available at the time of this revision); verify the 80GB
+% budget actually holds on the first real cluster job and back off if not.
+% lr/warmup_steps/max_steps are re-derived from the new batch_size, not left at
+% their old values, to hold two things fixed: total training tokens (2.5e9,
+% S1.1) and every interval's *token*-space cadence (warmup, checkpoint, eval).
+%   - max_steps: re-solved for 2.5e9 tokens at the new 98,304 tok/step (192*512),
+%     giving 25,425 (was 101,726 at 48*512=24,576 tok/step).
+%   - lr: 6e-4 -> 1.2e-3, sqrt-scaled (6e-4 * sqrt(192/48) = 6e-4*2), following
+%     Malladi et al. (2022)'s SDE-derived scaling rule for Adam-family
+%     optimizers under a batch-size change -- sqrt, not SGD's linear rule.
+%   - warmup_steps: 2000 -> 500 (exactly 2000/4), so warmup covers the same
+%     token budget (500*98,304 == 2000*24,576, exactly, since tok/step rose
+%     exactly 4x).
+%   - checkpoint sparse_interval_steps/dense_interval_steps/dense_window_steps
+%     and eval_interval_steps similarly divided by 4, for the same
+%     token-space-cadence reason (the 10-15-minute crash-loss bound itself is
+%     recomputed at the new tok/step against the same 178,000 tok/s reference,
+%     not just scaled by the batch-size ratio).
+% All other S1.5 content (architecture, AdamW betas/eps/weight-decay, cosine
+% schedule shape, bf16 precision) is unchanged.
 % STATUS (2026-07-05): vignette generation (S1.4) is IN PROGRESS, not complete --
 % 2,638/3,360 (entity, side) pairs have >=3 accepted variants; 722 remain (660 with 0
 % variants), left over from before the case-insensitive value-fidelity fix (S1.2) was
@@ -750,27 +782,55 @@ occurrences (\S\ref{sec:scheduler}) into the packed token shards
 \label{sec:optimization}
 
 \begin{itemize}
-  \item Optimizer: AdamW, cosine LR schedule with warmup, weight decay 0.01.
+  \item Optimizer: AdamW (fused CUDA kernel when running on GPU), cosine LR
+    schedule with warmup, weight decay 0.01.
   \item Precision: bf16 mixed precision, gradient clipping.
-  \item \textbf{Batch size / step count: 48 / 101{,}726}, re-derived from the
-    fixed $2.5\times10^9$-token target (\S\ref{sec:corpus}) rather than
-    \citet{allenzhu2023physics}'s reference step count -- superseding the
-    prior $50{,}000$-step placeholder, which was anchored to their
-    $\sim$1.2$\times10^9$-token budget, not this project's now-fixed one.
-    At 512-token context: $48 \times 512 \times 101{,}726 \approx
-    2.5\times10^9$ tokens exactly. Since \texttt{total\_tokens} (on-disk) is
-    also fixed at $2.5\times10^9$ (\S\ref{sec:corpus-vs-training-tokens}),
-    this is $\approx$one epoch over the backbone, not a multi-epoch repeat --
-    architecture (12-layer/12-head/768-dim) and optimizer hyperparameters
-    otherwise still match \citet{allenzhu2023physics} for comparability.
+  \item \textbf{Batch size / step count: 192 / 25{,}425} -- batch size raised
+    from 48 (superseding that value, not just the step count derived from it;
+    see the REVISION note at the top of this file) for A100 GPU utilization:
+    at batch 48 and 512-token context, even with flash/SDPA attention, an
+    A100-80GB runs at a small fraction of its memory capacity, capping
+    achieved MFU well below the throughput reference this section's
+    wall-clock estimate depends on. This is a deliberate departure from
+    \citet{allenzhu2023physics} on batch size specifically -- architecture
+    (12-layer/12-head/768-dim) and every other optimizer hyperparameter
+    (AdamW betas/eps, weight decay, cosine schedule shape) still match that
+    reference for comparability. Step count is re-derived, as before, from
+    the fixed $2.5\times10^9$-token target (\S\ref{sec:corpus}): at 512-token
+    context, $192 \times 512 \times 25{,}425 \approx 2.5\times10^9$ tokens.
+    Since \texttt{total\_tokens} (on-disk) is also fixed at $2.5\times10^9$
+    (\S\ref{sec:corpus-vs-training-tokens}), this remains $\approx$one epoch
+    over the backbone, not a multi-epoch repeat.
+  \item \textbf{Learning rate and warmup re-derived from the new batch size},
+    not left at their old values, so two things stay fixed across the batch
+    change: total training tokens (already covered above) and every
+    interval's \emph{token-space} cadence. $\text{lr}: 6\times10^{-4}
+    \to 1.2\times10^{-3}$, \textbf{sqrt-scaled} ($6\times10^{-4} \cdot
+    \sqrt{192/48} = 6\times10^{-4}\cdot 2$) per \citet{malladi2022sdes}'s
+    SDE-derived scaling rule for Adam-family optimizers under a batch-size
+    change -- sqrt, not the linear rule appropriate for SGD.
+    $\text{warmup\_steps}: 2000 \to 500$ (exactly divided by 4, matching the
+    4$\times$ rise in tokens/step, so warmup covers the same token budget:
+    $500\times 98{,}304 = 2000\times 24{,}576$ tokens, exactly).
+    Checkpoint and eval intervals are similarly rescaled
+    (\S\ref{sec:checkpointing}, \S\ref{sec:eval}) to hold their token-space
+    cadence fixed too.
+  \item \textbf{Not validated against a real GPU run} (none available at the
+    time of this revision): whether 192 actually fits comfortably in 80GB
+    alongside gradients/optimizer state/\texttt{torch.compile} overhead
+    should be checked on the first real cluster job, with a fallback to a
+    smaller batch (e.g. 96 or 128, with lr/warmup/step-count re-derived the
+    same way) if not.
   \item Estimated wall-clock time on a single A100 80GB: using nanoGPT's
     published single-A100 benchmark ($\sim$178,000 tokens/sec at 49\% MFU
-    training this same 124M-parameter architecture) as the closest available
-    reference point, $2.5\times10^9$ tokens $/ 178{,}000 \approx 3.9$ hours --
-    comfortably inside a single 12-hour cluster job (CLAUDE.md \S2), though
-    this figure has not been validated against this project's own
-    throughput (different context length, GPU variant) and should be
-    treated as a planning estimate, not a commitment, until measured.
+    training this same 124M-parameter architecture, itself measured with a
+    fused optimizer and \texttt{torch.compile} -- both now also used here,
+    \texttt{training/train.py}) as the closest available reference point,
+    $2.5\times10^9$ tokens $/ 178{,}000 \approx 3.9$ hours -- comfortably
+    inside a single 12-hour cluster job (CLAUDE.md \S2), though this figure
+    has not been validated against this project's own throughput (different
+    context length, GPU variant, batch size) and should be treated as a
+    planning estimate, not a commitment, until measured.
 \end{itemize}
 
 \subsection{Checkpointing}

@@ -1,15 +1,17 @@
-# Pinned to what's tested locally in .venv (Python 3.14, macOS arm64).
+# Cluster: use the `epis` conda env (Python 3.10), not a fresh venv from this file --
+# these pins mirror what's already installed there (verified working, CUDA 13.0 build
+# of torch) rather than being installed from scratch. Only reinstall if epis drifts.
 #
-# torch here is the CPU/MPS macOS build (no CUDA) -- fine for local dev/smoke-testing,
-# but the cluster needs a CUDA-matched build instead. Once the cluster's CUDA version is
-# known, install torch there separately (e.g. via the matching index from
-# https://pytorch.org/get-started/locally/) rather than from this pin.
-torch==2.12.1
-transformers==5.13.0
-numpy==2.5.1
+# A separate local macOS/arm64 dev pin set (Python 3.14, CPU/MPS torch) was tried here
+# previously and does not apply to the cluster -- Python 3.10 can't resolve those
+# versions. If local dev/smoke-testing (no GPU) is needed again, use a separate
+# requirements-local.txt rather than overloading this file with two incompatible pins.
+torch==2.11.0
+transformers==4.44.2
+numpy==2.2.6
 PyYAML==6.0.3
-datasets==5.0.0
-openai==2.44.0
+datasets==4.8.4
+openai==2.32.0
 
 # Optional: only needed for inference_time/semantic_entropy.py's "embed" clustering
 # mode (SpARE baseline); not required for training.

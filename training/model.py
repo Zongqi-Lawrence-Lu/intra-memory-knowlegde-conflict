@@ -23,6 +23,13 @@ def build_model(cfg: ModelConfig) -> GPT2LMHeadModel:
         resid_pdrop=cfg.resid_pdrop,
         embd_pdrop=cfg.embd_pdrop,
         attn_pdrop=cfg.attn_pdrop,
+        attn_implementation="sdpa",  # dispatches to PyTorch's fused/flash-attention
+        # kernels (GPT2SdpaAttention) instead of HF's default eager attention -- verified
+        # on transformers 4.44.2 to produce identical outputs, just fused kernels.
+        use_cache=False,  # training/eval here only ever do teacher-forced forward passes
+        # (never incremental generation), so the per-layer KV-cache HF builds by default
+        # is wasted allocation every step; verified this actually suppresses it
+        # (out.past_key_values is None) rather than just being a config no-op.
     )
     model = GPT2LMHeadModel(hf_config)
     return model

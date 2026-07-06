@@ -19,10 +19,11 @@ def compute_perplexity(model, loader: DataLoader, device, dtype, max_batches: in
     model.eval()
     total_loss = 0.0
     total_tokens = 0
+    on_cuda = device.startswith("cuda")
     for i, (x, y) in enumerate(loader):
         if max_batches is not None and i >= max_batches:
             break
-        x, y = x.to(device), y.to(device)
+        x, y = x.to(device, non_blocking=on_cuda), y.to(device, non_blocking=on_cuda)
         with torch.autocast(device_type=device.split(":")[0], dtype=dtype, enabled=(device != "cpu")):
             out = model(input_ids=x, labels=y)
         n_tokens = y.numel()
