@@ -15,19 +15,38 @@ import random
 
 from preprocess.schema import RELATION_TYPES
 
-# S1.6 split levels: (n_A, n_B) pairs summing to a fixed total budget T. Proposed
-# default for T=32, pending the exposure-budget pilot (S1.11) -- both T and the split
-# values themselves are set by that pilot, not fixed here.
+# S1.6 split levels: (n_A, n_B) pairs summing to a fixed total budget T=80 (S1.11 note:
+# a scaled-up working estimate adopted ahead of the exposure-budget pilot, not a
+# pilot-validated value -- see experimental_plans.tex S1.11 for the reasoning).
 SPLIT_LEVELS: tuple[tuple[int, int], ...] = (
-    (16, 16),
-    (20, 12),
-    (24, 8),
-    (27, 5),
-    (29, 3),
-    (31, 1),
+    (40, 40),
+    (50, 30),
+    (60, 20),
+    (68, 12),
+    (73, 7),
+    (77, 3),
 )
 REPLICATES_PER_CELL = 20
 NUM_BACKGROUND = 4  # K=4, S1.2
+
+# S1.4/S1.7: total vignette variants per entity, split unevenly across (side A, side B)
+# in proportion to that entity's own (n_a, n_b) -- not a flat V/2 for every entity --
+# so the higher-occurrence side gets more fresh material before round-robin repeats
+# kick in, and the low-occurrence side doesn't waste generation budget on variants it
+# will rarely use.
+TOTAL_VARIANTS_PER_ENTITY = 8
+
+
+def variants_per_side(n_a: int, n_b: int, total_variants: int = TOTAL_VARIANTS_PER_ENTITY) -> tuple[int, int]:
+    """Returns (v_a, v_b) summing to total_variants, allocated proportionally to
+    (n_a, n_b) with a floor of 1 per side (every side that occurs at all needs at
+    least one usable variant). At extreme splits, multiple split levels floor to the
+    same (v_a, v_b) -- e.g. (68,12), (73,7), (77,3) all floor side B to 1 -- which is
+    expected, not a bug: once a side's occurrence share drops far enough, 1 variant is
+    both the minimum and the proportionally-correct allocation."""
+    v_b = max(1, round(total_variants * n_b / (n_a + n_b)))
+    v_a = total_variants - v_b
+    return v_a, v_b
 
 
 def build_assignment_list(rng: random.Random) -> list[tuple[str, tuple[int, int]]]:

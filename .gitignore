@@ -16,7 +16,5 @@ checkpoint/
 *.fdb_latexmk
 *.pdf
 
-# weights/optimizer-state checkpoints + raw per-run logs (training/README.md) --
-# only results/ (small tracked JSON/YAML) is meant to survive into git
 output/
-
+data/raw/wikitext-103/

@@ -131,8 +131,30 @@
 \label{sec:corpus}
 
 \begin{itemize}
-  \item Backbone: WikiText-103 \citep{merity2016pointer}, deduplicated,
-    stylistically matched to the synthetic biography documents.
+  \item \textbf{Backbone: OpenWebText \citep{Gokaslan2019OpenWebText}, superseding
+    WikiText-103.} WikiText-103 (deduplicated) tokenizes to only
+    $\approx$110M tokens total -- far short of the total-training-token target
+    below, and, since \texttt{assemble\_corpus.py} reads the backbone once
+    straight through rather than looping it, that number is a hard ceiling on
+    how much of it could ever be packed into the on-disk corpus. OpenWebText
+    has $\approx$9.04B tokens (9{,}035{,}582{,}198, per its published token
+    count), comfortably enough for a single, non-repeating pass at the token
+    budget below.
+  \item \textbf{Streamed and consumed in bounded chunks, not downloaded in
+    full.} OpenWebText is 38GB of raw text; the corpus this project actually
+    needs (\S\ref{sec:scale} below) is a fraction of that. The backbone loader
+    (\texttt{preprocess/backbone\_openwebtext.py}) pulls documents from the
+    \texttt{Skylion007/openwebtext} HF dataset via
+    \texttt{datasets.load\_dataset(..., streaming=True)}, buffers raw text
+    in memory only until a chunk boundary (default 2GB of accumulated text,
+    configurable) is reached, hands that chunk to the assembler for
+    tokenizing and packing (\S\ref{sec:assembly}), then discards the buffer
+    and pulls the next chunk -- nothing beyond one chunk's raw text is ever
+    held at once, and no persistent local copy of the dataset is written to
+    disk. This is a storage-constraint requirement, not a performance
+    optimization: the download must happen at run time, inside the
+    assembly/training job itself, never as a separate pre-staged local
+    dataset.
   \item Injected data: synthetic biography documents, one per entity
     (\S\ref{sec:entity}), inserted at randomly scheduled positions in the
     backbone token stream (\S\ref{sec:scheduler}).
@@ -147,9 +169,19 @@
     timing with optimization dynamics rather than isolating it. This is a
     deliberate scope decision, not an oversight, and supersedes every
     recency-bin mechanism in the prior design.
-  \item Token budget: $\mathcal{O}(10^8\text{--}10^9)$ tokens (backbone +
-    injected); set jointly with \S\ref{sec:optimization} once \S\ref{sec:scale}
-    is finalized.
+  \item \textbf{Token budget: fixed at $2.5\times10^9$ total training tokens},
+    the Chinchilla-optimal point for a 124M-parameter model
+    \citep{hoffmann2022chinchilla} at $\approx$20 tokens/parameter --
+    superseding the earlier $\mathcal{O}(10^8\text{--}10^9)$ placeholder range
+    now that a concrete backbone (OpenWebText) can actually support it. Per
+    \S\ref{sec:corpus-vs-training-tokens}'s distinction, this is the total
+    training-token figure (batch $\times$ context $\times$ steps,
+    \S\ref{sec:optimization}), not necessarily the on-disk corpus size: since
+    OpenWebText has enough unique tokens to cover $2.5\times10^9$ in a single
+    pass with no repetition, \texttt{total\_tokens} (on-disk, S1.7) is set
+    equal to the training-token target rather than smaller, so the run needs
+    zero epochs of repetition over its own backbone -- the cleanest point on
+    \citet{muennighoff2023scaling}'s curve.
 \end{itemize}
 
 \subsection{Entity and Document Construction}
@@ -298,13 +330,30 @@
     cluster at population scale before being fixed. Any future value pool
     must be name-shaped for the same reason, not merely fictional.
   \item \textbf{Variant choice is round-robin, not resampled}: at each
-    occurrence event (\S\ref{sec:scheduler}), one of the $V$ pre-generated
-    variants for that (entity, side) is used, drawn without repetition until
-    all $V$ have been used once, then reshuffled -- the same discipline as
-    the value assignment above, applied here to variant choice rather than
-    fact content, so an entity's occurrences do not reuse the same paragraph
+    occurrence event (\S\ref{sec:scheduler}), one of that side's
+    pre-generated variants is used, drawn without repetition until all have
+    been used once, then reshuffled -- the same discipline as the value
+    assignment above, applied here to variant choice rather than fact
+    content, so an entity's occurrences do not reuse the same paragraph
     back-to-back purely by chance. State is kept per entity, persisting
     across that entity's occurrence events, not reset per instance.
+  \item \label{sec:variants-per-side} \textbf{Total variants per entity fixed
+    at 8, allocated unevenly across sides via \texttt{variants\_per\_side}
+    (\texttt{preprocess/scheduler.py})} -- superseding a flat $V$ split
+    evenly (or near-evenly) between side $A$ and side $B$. Given the
+    entity's own $(n_A, n_B)$ (\S\ref{sec:scale}), $v_B = \max(1,
+    \mathrm{round}(8 \cdot n_B / (n_A{+}n_B)))$ and $v_A = 8 - v_B$: the
+    side with more scheduled occurrences gets proportionally more fresh
+    material before round-robin repeats kick in, rather than every entity
+    receiving the same 4/4 (or similar) split regardless of how lopsided its
+    own exposure gap is. At the balanced split $(40,40)$ this still gives
+    $(4,4)$; at every split from $(68,12)$ onward the low side floors to a
+    single variant, which is both the proportionally-implied allocation and
+    the practical minimum (a side that occurs at all needs at least one
+    usable paragraph). Combined with $T=80$ (\S\ref{sec:scale}), most
+    occurrences necessarily reuse a small number of paragraphs many times
+    over -- an explicit, accepted design choice (\S\ref{sec:assembly}), not
+    an oversight.
   \item \textbf{Resolved: recall scoring is decoupled from training text}
     (was flagged here as an open question; see \S\ref{sec:assembly}).
     \S\ref{sec:divergence}'s single-token surface-form divergence guarantee
@@ -374,9 +423,10 @@ accepted; the cross-pool and WikiText-103 disjointness checks of \S\ref{sec:enti
 afterward, on the cleaned pools.
 
 \textbf{Generation procedure (vignettes)}: one call per (entity, side), requesting
-$V$ variants (proposed default $V=5$, i.e. matching the prior restatement-bank size,
-pending revision once the round-robin cadence of \S\ref{sec:entity} is checked against
-the pilot's occurrence counts, \S\ref{sec:seeds}); sampled at a moderately elevated
+that side's target variant count (\texttt{v\_a} or \texttt{v\_b} from
+\S\ref{sec:entity}'s \texttt{variants\_per\_side} -- 8 total per entity, split
+unevenly across sides in proportion to $(n_A, n_B)$, not a flat $V$ for both sides
+as in the superseded design); sampled at a moderately elevated
 temperature (higher than the near-deterministic pool/template calls) so the
 $V$ variants are genuinely structurally distinct rather than near-duplicates. Each
 returned variant is checked post-hoc for the value-fidelity requirement above (exact
@@ -523,17 +573,26 @@ backbone-plus-injection stream:
 \label{sec:scale}
 
 \begin{itemize}
-  \item \textbf{Split levels}: the swept independent variable is the split
-    $(n_A, n_B)$ of a fixed total exposure budget $T$. Proposed default,
-    pending the exposure-budget pilot (\S\ref{sec:seeds}): 6 split levels
-    spanning balanced to extreme gap -- e.g., for $T=32$: $(16,16)$,
-    $(20,12)$, $(24,8)$, $(27,5)$, $(29,3)$, $(31,1)$. Both $T$ and the
-    specific split values are set by the pilot, not fixed here.
-  \item \textbf{Replication}: proposed default 20 replicate entities per
-    (relation type, split level) combination (14 types $\times$ 6 levels
-    $\times$ 20 $=$ 1{,}680 entities total), pending confirmation once
-    \S\ref{sec:seeds} fixes $T$ and the split-level count. Relation type and
-    split level are both exactly balanced by the construction in
+  \item \textbf{Split levels: $T=80$, 6 levels}, superseding the earlier
+    $T=32$ placeholder -- \textbf{a scaled-up working estimate adopted ahead
+    of the exposure-budget pilot (\S\ref{sec:seeds}), not itself a
+    pilot-validated value.} Rationale for raising it: a capacity argument
+    (\S\ref{sec:seeds}) shows this population is nowhere near
+    capacity-constrained, so Allen-Zhu's 1000-exposure regime is the wrong
+    anchor, but $T=32$ likely undershoots the point where a contested pair's
+    confidence gap is reliably learned rather than noisy; the pilot is still
+    what fixes this properly, and should sweep around this new estimate
+    rather than assume it. Split levels (all summing to $T=80$, same
+    balanced-to-extreme spanning shape as the $T=32$ table it replaces):
+    $(40,40)$, $(50,30)$, $(60,20)$, $(68,12)$, $(73,7)$, $(77,3)$.
+  \item \textbf{Replication}: 20 replicate entities per (relation type, split
+    level) combination (14 types $\times$ 6 levels $\times$ 20 $=$ 1{,}680
+    entities total) -- unchanged in count from the $T=32$ population; the
+    $T=32\to T=80$ migration remapped each entity's existing $(n_A, n_B)$ to
+    its new value at the same split-level index (preserving every entity's
+    name, contested relation type, values, and background facts exactly, so
+    the population did not need to be rebuilt from scratch). Relation type
+    and split level are both exactly balanced by the construction in
     \S\ref{sec:entity} -- every relation type is contested the same number
     of times within every split level, so relation-type identity cannot
     confound the frequency-gap comparison. Background-relation-type usage is
@@ -544,22 +603,61 @@ backbone-plus-injection stream:
 \subsection{Corpus Assembly}
 \label{sec:assembly}
 
-Interleaves the WikiText-103 backbone with entities' vignette occurrences
-(\S\ref{sec:scheduler}) into the packed token shards \texttt{training/data.py:%
-PackedTokenDataset} already expects (\texttt{meta.json} + \texttt{*.bin}), plus a
-separate occurrence log.
+Interleaves the OpenWebText backbone (\S\ref{sec:corpus}) with entities' vignette
+occurrences (\S\ref{sec:scheduler}) into the packed token shards
+\texttt{training/data.py:PackedTokenDataset} already expects (\texttt{meta.json} +
+\texttt{*.bin}), plus a separate occurrence log.
 
 \begin{itemize}
-  \item \textbf{Document boundaries}: each backbone line (the atomic
-    deduplicated unit from \S\ref{sec:corpus}) and each injected vignette
-    occurrence is its own self-contained document, delimited by the GPT-2 EOS
-    token on both sides -- consistent with the "self-contained excerpt"
-    framing of document rendering (\S\ref{sec:entity}) and with standard
-    packed-corpus practice. Injections are never spliced mid-line: a
-    scheduler position (\S\ref{sec:scheduler}, a real-valued coordinate) is
-    snapped to the nearest backbone line boundary via a prefix-sum of
-    per-line token counts, so an occurrence always starts a fresh document
-    rather than interrupting an unrelated WikiText sentence.
+  \item \textbf{Single streaming pass, not two passes over a local file} --
+    superseding the WikiText-103-era design entirely. That design required a
+    fully-materialized local backbone file to read twice (once to measure
+    line lengths, once to write tokens); OpenWebText is instead pulled
+    through \texttt{preprocess/backbone\_openwebtext.py}'s chunked HF stream
+    (\S\ref{sec:corpus}), so there is no stable local file to re-read a
+    second time. This is not just a workaround but a simplification: every
+    occurrence event's position (\S\ref{sec:scheduler}) is already a
+    real-valued coordinate into $[0, \texttt{total\_tokens})$ decided purely
+    from the target token budget, with no dependency on backbone content --
+    so all events can be precomputed and sorted up front, then fired online
+    while streaming. \textbf{Two counters are kept, deliberately not one}: a
+    backbone-only cumulative count (compared against event positions, since
+    those coordinates are defined against the backbone stream alone,
+    \S\ref{sec:corpus-vs-training-tokens}) and the actual full packed-stream
+    offset including already-injected tokens (used only for the occurrence
+    log). Comparing events against the full-stream offset instead would let
+    an injected vignette's own tokens push that counter past \emph{later}
+    events' positions, firing them in a cascade well before the backbone
+    content that was supposed to precede them had actually been written --
+    caught in a mocked dry run (no real OpenWebText access needed to catch
+    it) before this shipped.
+  \item \textbf{Document boundaries, and insertion granularity within them}:
+    each OpenWebText row is one self-contained article (the natural document
+    unit here, unlike WikiText-103's per-line convention) and each injected
+    vignette occurrence is its own self-contained document, both delimited by
+    the GPT-2 EOS token. Injections are never spliced mid-sentence, but they
+    are also not restricted to firing only between whole articles: OpenWebText
+    documents run up to $\sim$100k characters, so checking only at document
+    boundaries would let a scheduled position sit unfired for an entire long
+    article before firing, well past where it was meant to land. Instead each
+    document is tokenized once, at full length
+    (\texttt{backbone\_openwebtext.py:tokenize\_with\_unit\_boundaries} --
+    tokenizing paragraph fragments separately and concatenating them was tried
+    and rejected: it silently drops the whitespace between paragraphs and
+    breaks any BPE merge that should span the boundary, verified concretely
+    during review), which also returns paragraph- (or sentence-, fallback)
+    boundary token indices; the event-firing check runs after every such
+    boundary, not just after every whole document. Two consequences of firing
+    mid-document rather than only between documents: (1) EOS is appended only
+    after a document's final boundary, so an uninterrupted article stays one
+    EOS-delimited unit on disk; (2) a vignette that fires at an
+    \emph{internal} paragraph boundary gets an EOS forced immediately before
+    it (in addition to the one already following it) -- without this, the
+    vignette would run directly into the preceding backbone paragraph with no
+    separator at all, exactly the concatenation this design is meant to avoid.
+    The rare case of a vignette firing exactly on a whole-document boundary
+    (which already ends in EOS) produces a harmless doubled EOS rather than
+    needing special-cased detection.
   \item \textbf{\texttt{total\_tokens} is a backbone budget, not the final
     corpus length}: backbone lines are tokenized and accumulated until this
     budget is met; scheduler positions are coordinates into that
@@ -569,18 +667,35 @@ separate occurrence log.
     circular dependency (exact final length depends on injected-text
     lengths, which vary per LLM-authored variant and aren't known until
     generation time).
-  \item \textbf{Two passes, streamed, not one pass held in memory}: an
-    initial implementation tokenized the whole backbone into one in-memory
-    list before writing it out -- fine at the $2\times10^5$-token dev-test
-    scale, but would not have scaled to $10^8$--$10^9$ tokens (holding every
-    line's token ids simultaneously is exactly as expensive as holding the
-    full stream). Caught in review before a real-scale run, not after one
-    failed: pass 1 tokenizes each backbone line only to measure its length
-    (building the line-boundary prefix-sum, \S\ref{sec:assembly} above);
-    pass 2 re-reads and re-tokenizes the same lines, writing each one's
-    tokens (and any injected occurrence scheduled after it) directly to the
-    output shard as it goes. Re-tokenization is a deliberate, cheap
-    tradeoff against holding the whole corpus in memory at once.
+  \item \label{sec:corpus-vs-training-tokens} \textbf{\texttt{total\_tokens}
+    (on-disk corpus size) and total training
+    tokens (\S\ref{sec:optimization}) are two independent quantities, not the
+    same number under two names}: this section's \texttt{total\_tokens} fixes
+    how many distinct tokens exist in the packed shards on disk. Total
+    training tokens is \texttt{batch\_size} $\times$ \texttt{n\_positions}
+    $\times$ \texttt{max\_steps} (\S\ref{sec:optimization}) -- the number of
+    tokens the optimizer actually processes over the whole run, which
+    routinely exceeds \texttt{total\_tokens} because
+    \texttt{training/data.py:PackedTokenDataset} is sampled with replacement,
+    not iterated as fixed epochs: \texttt{training/train.py:infinite\_loader}
+    reshuffles and re-cycles the same fixed set of on-disk windows
+    indefinitely once one pass is exhausted, rather than stopping when the
+    corpus runs out. Concretely, a corpus with $N$ on-disk tokens trained for
+    $M$ total training tokens revisits that corpus $\approx M/N$ times over
+    the run -- this ratio is exactly the ``WikiText exposure'' open parameter
+    of \S\ref{sec:seeds}, and must be kept small enough that repetition
+    itself doesn't degrade quality (\citet{muennighoff2023scaling}: negligible
+    loss up to $\sim$4 epochs, a $\sim$16-epoch half-life past which returns
+    diminish sharply).
+  \item \textbf{Chunked consumption, memory-bounded either way}: each
+    $\sim$2GB text chunk from \texttt{backbone\_openwebtext.py} is tokenized
+    and its documents written directly to the output shard as they're
+    produced, then the chunk is discarded before the next one is pulled --
+    never holding more than one chunk's raw text, or the full token stream,
+    in memory at once. (The prior WikiText-103-era design's two-pass
+    approach solved a different problem -- avoiding a second full read of a
+    large local file -- that doesn't arise here, since OpenWebText is never
+    fully local to begin with, \S\ref{sec:corpus}.)
   \item \textbf{Injected-token floor and its consequence for
     \texttt{total\_tokens}}: the number of occurrence events is fixed by
     population size and $T$ (1{,}680 entities $\times$ $T$, independent of
@@ -588,26 +703,25 @@ separate occurrence log.
     how many there are), so there is a fixed injected-token floor that
     \texttt{total\_tokens} must be large relative to for the "rare
     conflicting fact in an otherwise natural corpus" framing to hold.
-    Measured directly (proposed-default population, $T=32$, $V=5$
-    gpt-4o-mini vignettes averaging $\sim$103 tokens/occurrence): the floor
-    is $\sim$5.5M tokens, giving an injected fraction of $\sim$96\% at
-    \texttt{total\_tokens}$=2\times10^5$, $\sim$36\% at $10^7$, $\sim$5\% at
-    $10^8$, and $\sim$0.6\% at $10^9$ -- i.e.\ \texttt{total\_tokens} needs
-    to land at the upper end of \S\ref{sec:corpus}'s $\mathcal{O}(10^8$--$%
-    10^9)$ range, not the lower end, for injected content to actually read
-    as a small perturbation. This is a concrete number for the
-    exposure-budget pilot (\S\ref{sec:seeds}) to weigh alongside $T$ itself,
-    not a free assumption.
+    At $T=80$ (\S\ref{sec:scale}) and $\sim$103 tokens/occurrence (matching
+    the $T=32$-era measurement, gpt-4o-mini vignettes): $1{,}680 \times 80 =
+    134{,}400$ occurrences, $\approx$13.8M injected tokens -- $\approx$0.55\%
+    of the fixed $2.5\times10^9$ token budget (\S\ref{sec:corpus}), safely
+    within the "rare perturbation" framing without needing to push
+    \texttt{total\_tokens} any higher for this reason alone.
   \item \textbf{Variant selection}: round-robin per (entity, side), same
     discipline as \S\ref{sec:entity} (\texttt{PoolCycler}) -- no variant
-    repeats until the full bank (proposed default $V=5$) is exhausted, then
-    reshuffled. \textbf{Known limitation, flagged rather than fixed}: $V=5$
-    is almost certainly too few once $T$ is fixed by the pilot -- an entity
-    with, say, $T=32$ occurrences on one side cycles through only 5 distinct
-    variants $\sim$6 times over its exposure history, repeating exact
-    paragraphs verbatim. Kept at 5 for now (generation cost/dev-cycle
-    reasons); revisit \emph{after} \S\ref{sec:seeds} fixes $T$, since the
-    right $V$ depends on it.
+    repeats until that side's bank (\texttt{v\_a} or \texttt{v\_b} variants,
+    8 total per entity split unevenly per \S\ref{sec:entity}) is exhausted,
+    then reshuffled. \textbf{Heavy repetition is expected and accepted, not a
+    bug}: at the high-occurrence side of an extreme split (e.g. $(77,3)$'s
+    77-occurrence side with 7 variants), each paragraph is reused
+    $\approx$11 times over that entity's exposure history. This is the
+    explicit "combination of fresh vignettes and repetition" the $T=80$/$V=8$
+    design accepts rather than paying for enough fresh variants to avoid it
+    entirely (\citet{allenzhu2024capacity}'s bioR uses 40 variants/entity as
+    an upper anchor, but generating that many per side at population scale
+    was judged not worth the added API cost here).
   \item \textbf{Output}: the packed stream (\texttt{data/processed/<name>/}) plus
     \texttt{results/occurrence\_log.json} (small, tracked) recording every
     occurrence event's entity, side, and final absolute token position in the
@@ -638,15 +752,25 @@ separate occurrence log.
 \begin{itemize}
   \item Optimizer: AdamW, cosine LR schedule with warmup, weight decay 0.01.
   \item Precision: bf16 mixed precision, gradient clipping.
-  \item Reference batch size / step count: 48 / 50{,}000, matched to
-    \citet{allenzhu2023physics} (identical 12-layer/12-head/768-dim
-    architecture, bioS corpus). At 512-token context this gives
-    $48 \times 512 \times 50{,}000 \approx 1.2\times10^{9}$ tokens; final
-    values are re-tuned to the combined token budget in \S\ref{sec:corpus}
-    once \S\ref{sec:scale} is finalized by the pilot. This step count, not
-    just \texttt{total\_tokens} alone, determines how many times backbone
-    content is seen during training (\S\ref{sec:seeds}'s "pilot scope"
-    discussion) -- the two should be set together, not independently.
+  \item \textbf{Batch size / step count: 48 / 101{,}726}, re-derived from the
+    fixed $2.5\times10^9$-token target (\S\ref{sec:corpus}) rather than
+    \citet{allenzhu2023physics}'s reference step count -- superseding the
+    prior $50{,}000$-step placeholder, which was anchored to their
+    $\sim$1.2$\times10^9$-token budget, not this project's now-fixed one.
+    At 512-token context: $48 \times 512 \times 101{,}726 \approx
+    2.5\times10^9$ tokens exactly. Since \texttt{total\_tokens} (on-disk) is
+    also fixed at $2.5\times10^9$ (\S\ref{sec:corpus-vs-training-tokens}),
+    this is $\approx$one epoch over the backbone, not a multi-epoch repeat --
+    architecture (12-layer/12-head/768-dim) and optimizer hyperparameters
+    otherwise still match \citet{allenzhu2023physics} for comparability.
+  \item Estimated wall-clock time on a single A100 80GB: using nanoGPT's
+    published single-A100 benchmark ($\sim$178,000 tokens/sec at 49\% MFU
+    training this same 124M-parameter architecture) as the closest available
+    reference point, $2.5\times10^9$ tokens $/ 178{,}000 \approx 3.9$ hours --
+    comfortably inside a single 12-hour cluster job (CLAUDE.md \S2), though
+    this figure has not been validated against this project's own
+    throughput (different context length, GPU variant) and should be
+    treated as a planning estimate, not a commitment, until measured.
 \end{itemize}
 
 \subsection{Checkpointing}
@@ -737,21 +861,31 @@ itself informative, which is the object this section's metrics operate on.
 \label{sec:seeds}
 
 \textbf{Exposure-budget pilot}: rather than adopting an exposure-count regime
-from prior work, $T$ (\S\ref{sec:scale}) is calibrated empirically to this
-project's own setting. \citet{allenzhu2024capacity}'s $\sim$1000-exposure
-regime is a poor prior here: their numbers are calibrated to a
-capacity-stressed setting (millions of entities competing for a fixed
+from prior work, $T$ (\S\ref{sec:scale}) is meant to be calibrated
+empirically to this project's own setting. \citet{allenzhu2024capacity}'s
+$\sim$1000-exposure regime is a poor prior here: their numbers are calibrated
+to a capacity-stressed setting (millions of entities competing for a fixed
 parameter budget), whereas this design uses a much smaller, non-capacity-
 constrained entity population, so any single fact is learned far faster and
 values anywhere near 1000 exposures would be expected to saturate both sides
 of a contested pair well before the frequency gap does -- directly violating
-the ``no premature saturation'' property of \S\ref{sec:calibration}. Instead:
-a single-seed, reduced-token-budget pass sweeps a broad range of candidate
-$T$ values (and a small number of representative splits) and inspects the
-resulting logit-gap/calibration curve; $T$ is fixed at a value where that
-curve is monotonic but not yet saturated, per \S\ref{sec:calibration}. Only
-the conditions selected by this pilot are then re-run at the full corpus
-scale and seed count of \S\ref{sec:scale}.
+the ``no premature saturation'' property of \S\ref{sec:calibration}. The
+pilot itself has not been run yet; in its place, $T=80$ (\S\ref{sec:scale})
+is a working estimate reasoned from the same capacity argument rather than
+measured: this population's total factual content is
+$1{,}680 \times 5 \times \log_2(150) \approx 61{,}000$ bits (5 facts/entity,
+$\sim$150-entry value pools), against GPT-2-small's $\sim$2-bit/parameter
+capacity ceiling of $124\text{M} \times 2 \approx 248$M bits
+(\citet{allenzhu2024capacity}'s own measured saturation rate) -- a
+$\sim$4{,}000$\times$ slack, i.e.\ nowhere near capacity-constrained, so
+substantially fewer than 1000 exposures should suffice, but $T=32$ likely
+undershot that point. $T=80$ is a reasoned midpoint, not a validated one:
+once the pilot is actually run, it should sweep a range spanning this
+estimate (e.g.\ $32/64/128/256/512$) and inspect the resulting
+logit-gap/calibration curve; $T$ is fixed at a value where that curve is
+monotonic but not yet saturated, per \S\ref{sec:calibration}. Only the
+conditions selected by this pilot are then re-run at the full corpus scale
+and seed count of \S\ref{sec:scale}.
 
 \textbf{Seeds}: multiple random seeds and data-ordering variants per
 condition, to separate a stable property of the setup from a
@@ -759,33 +893,33 @@ single-trajectory artifact, staged the same way as the exposure-budget pilot
 above (single-seed pilot identifies conditions of interest; only those are
 re-run at full seed count).
 
-\textbf{Pilot scope: four parameters, not one}. $T$ is the headline unknown
-above, but three more are equally undecided and should be fixed by the same
-pilot rather than assumed independently:
+\textbf{Pilot scope, updated}: three of the original four parameters here
+are now resolved working values rather than open unknowns, each reasoned
+through in the sections cited, though none are pilot-validated:
 \begin{itemize}
-  \item \textbf{\texttt{total\_tokens}} (\S\ref{sec:assembly}): must sit at
-    the upper end of \S\ref{sec:corpus}'s $10^8$--$10^9$ range for the
-    measured $\sim$5.5M-token injected floor to actually read as rare;
-    candidate anchor is \citet{allenzhu2023physics}'s own reference budget
-    ($\sim$1.2$\times10^9$ tokens, \S\ref{sec:optimization}), not picked
-    independently of $T$.
-  \item \textbf{WikiText exposure}: unlike vignette exposure ($=T$ per
-    entity, fixed by construction regardless of corpus size,
-    \S\ref{sec:scheduler}), how many times backbone content is seen is not a
-    controlled parameter -- it falls out of the ratio between
-    \texttt{total\_tokens} and total training tokens processed (batch
-    $\times$ block $\times$ steps, \S\ref{sec:optimization}), since
-    \texttt{training/data.py:PackedTokenDataset} samples random windows
-    rather than iterating fixed epochs. Whichever the pilot picks, this
-    ratio should be picked \emph{with} it, not left to fall out unexamined --
-    an accidentally over- or under-sampled backbone is itself a confound.
-  \item \textbf{$V$} (variants per entity/side, \S\ref{sec:entity}): default
-    5 was cost/dev-convenience, not a calibrated choice; at the (31,1)
-    extreme split, only 1 of 5 variants ever gets used on the low side.
-    \citet{allenzhu2024capacity}'s closest analogue (bioR, LLM-authored
-    realistic biographies) uses 40 variants per entity, a useful upper
-    anchor. Must be picked \emph{after} $T$, since reuse/underuse rates
-    (\S\ref{sec:generation}) depend on it directly.
+  \item \textbf{\texttt{total\_tokens}} (\S\ref{sec:corpus},
+    \S\ref{sec:assembly}): fixed at $2.5\times10^9$, the Chinchilla-optimal
+    point for a 124M-parameter model \citep{hoffmann2022chinchilla} -- no
+    longer an open range, now that OpenWebText (\S\ref{sec:corpus}) can
+    actually supply that many unique tokens in a single pass.
+  \item \textbf{Backbone exposure}: with \texttt{total\_tokens} set equal to
+    the total-training-token target (\S\ref{sec:corpus}), the backbone is
+    seen $\approx$once (no repetition), sidestepping the over/under-sampling
+    confound this bullet used to flag -- resolved by construction rather
+    than by a separate ratio decision.
+  \item \textbf{$V$} (variants per entity/side, \S\ref{sec:entity}): fixed
+    at 8 total per entity, split unevenly across sides via
+    \texttt{variants\_per\_side} (\S\ref{sec:entity}, \S\ref{sec:scale}) --
+    up from the flat $V=5$/side default, though still well short of
+    \citet{allenzhu2024capacity}'s bioR anchor (40/entity); heavy
+    round-robin repetition on the high-occurrence side of extreme splits is
+    accepted as a cost/API-budget tradeoff (\S\ref{sec:assembly}), not
+    eliminated.
+  \item \textbf{$T$} (\S\ref{sec:scale}) remains the one genuinely open
+    parameter: $80$ is a reasoned working estimate (capacity-slack argument
+    above), not a pilot-validated value. The pilot, once run, should sweep
+    around this estimate and may revise $T$ (and, if $T$ moves far enough,
+    revisit $V$'s allocation and the split levels of \S\ref{sec:scale}).
 \end{itemize}
 
 \section{Baseline Methods}

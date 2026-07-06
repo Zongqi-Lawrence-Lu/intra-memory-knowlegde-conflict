@@ -76,20 +76,39 @@ Output ONLY a JSON object of exactly this shape:
 """
 
 
-def vignette_prompt(name: str, facts: list[tuple[str, str]], n_variants: int = 5) -> str:
-    """Draft, not yet wired into any generation script. Replaces mechanical
-    first_mention/restatement template assembly with a single LLM-authored biography
-    per (entity, side): all 5 facts are handed to the model flat (no hint that one is
-    contested), and it's asked to write several genuinely different coherent variants,
-    trading per-relation-type template reuse for per-vignette narrative freedom."""
+def vignette_prompt(
+    name: str, facts: list[tuple[str, str]], n_variants: int = 5, existing: list[str] | None = None
+) -> str:
+    """Replaces mechanical first_mention/restatement template assembly with a single
+    LLM-authored biography per (entity, side): all 5 facts are handed to the model
+    flat (no hint that one is contested), and it's asked to write several genuinely
+    different coherent variants, trading per-relation-type template reuse for
+    per-vignette narrative freedom.
+
+    existing, if given (non-empty), asks for n_variants *additional* variants on top
+    of ones already on disk -- used to top up a (entity, side) whose target variant
+    count increased (e.g. after a T/variants_per_side change) without throwing away
+    and re-paying for already-good existing content. The model is shown the existing
+    paragraphs so new ones avoid being near-duplicates, mirroring pool_prompt's
+    forbidden-entries mechanism."""
     facts_block = "\n".join(f"- {label}: {value}" for label, value in facts)
+    existing_block = ""
+    if existing:
+        numbered = "\n".join(f"{i+1}. {v}" for i, v in enumerate(existing))
+        existing_block = f"""
+
+These {len(existing)} variants already exist for {name} -- write NEW variants that
+are genuinely different in structure and phrasing from all of them (different
+opening fact, sentence order, wording), not just synonym swaps:
+{numbered}
+"""
     return f"""Write a short biography of a fictional person for a synthetic training corpus.
 
 Person: {name}
 
 Facts (state every one of these somewhere in the biography):
 {facts_block}
-
+{existing_block}
 Write {n_variants} independent variants of this biography.
 
 Rules:

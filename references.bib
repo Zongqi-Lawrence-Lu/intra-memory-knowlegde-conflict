@@ -164,7 +164,25 @@
   year      = {2016},
   eprint    = {1609.07843},
   archivePrefix = {arXiv},
-  note      = {Introduces WikiText-103}
+  note      = {Introduces WikiText-103; superseded as this project's backbone by OpenWebText, see \texttt{Gokaslan2019OpenWebText}}
+}
+
+@misc{Gokaslan2019OpenWebText,
+  title     = {OpenWebText Corpus},
+  author    = {Gokaslan, Aaron and Cohen, Vanya and Pavlick, Ellie and Tellex, Stefanie},
+  year      = {2019},
+  howpublished = {\url{http://Skylion007.github.io/OpenWebTextCorpus}},
+  note      = {Open replication of GPT-2's WebText; 8{,}013{,}769 documents, 38GB raw text, $\approx$9.04B tokens (9{,}035{,}582{,}198) per the HF \texttt{Skylion007/openwebtext} token count}
+}
+
+@inproceedings{hoffmann2022chinchilla,
+  title     = {Training Compute-Optimal Large Language Models},
+  author    = {Hoffmann, Jordan and Borgeaud, Sebastian and Mensch, Arthur and Buchatskaya, Elena and Cai, Trevor and Rutherford, Eliza and de Las Casas, Diego and Hendricks, Lisa Anne and Welbl, Johannes and Clark, Aidan and Hennigan, Tom and Noland, Eric and Millican, Katie and van den Driessche, George and Damoc, Bogdan and Guy, Aurelia and Osindero, Simon and Simonyan, Karen and Elsen, Erich and Rae, Jack W. and Vinyals, Oriol and Sifre, Laurent},
+  booktitle = {Advances in Neural Information Processing Systems 35 (NeurIPS 2022)},
+  year      = {2022},
+  eprint    = {2203.15556},
+  archivePrefix = {arXiv},
+  note      = {Chinchilla scaling laws: $\approx$20 tokens/parameter for compute-optimal training; 2.5B tokens for a 124M-parameter model}
 }
 
 @inproceedings{pereyra2017regularizing,
@@ -205,4 +223,14 @@
   eprint    = {2404.05405},
   archivePrefix = {arXiv},
   note      = {defines bioS(N)/bioS\_simple(N)/bioR(N) exposure-count semantics; 1000-exposure capacity-saturation calibration}
+}
+
+@inproceedings{muennighoff2023scaling,
+  title     = {Scaling Data-Constrained Language Models},
+  author    = {Muennighoff, Niklas and Rush, Alexander M. and Barak, Boaz and Scao, Teven Le and Piktus, Aleksandra and Tazi, Nouamane and Pyysalo, Sampo and Wolf, Thomas and Raffel, Colin},
+  booktitle = {Advances in Neural Information Processing Systems 36 (NeurIPS 2023)},
+  year      = {2023},
+  eprint    = {2305.16264},
+  archivePrefix = {arXiv},
+  note      = {repeating a fixed corpus up to ~4 epochs is near-lossless vs.\ unique data; value decays with a ~16-epoch half-life}
 }

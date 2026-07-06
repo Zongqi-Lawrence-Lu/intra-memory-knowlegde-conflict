@@ -78,6 +78,12 @@ def build_scheduler(optimizer, cfg) -> torch.optim.lr_scheduler.LambdaLR:
 
 
 def infinite_loader(loader: DataLoader):
+    """Cycles the (shuffled) loader forever. This is what lets total training tokens
+    (optim.max_steps * data.batch_size * model.n_positions, experimental_plans.tex
+    S1.9) exceed the on-disk corpus size (S1.7's total_tokens): once one pass over
+    PackedTokenDataset's windows is exhausted, this reshuffles and starts again
+    rather than stopping -- the two token counts are independent quantities, not
+    the same number under different names."""
     while True:
         for batch in loader:
             yield batch

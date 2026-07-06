@@ -1,14 +1,20 @@
 """Population-scale LLM vignette generation, experimental_plans.tex S1.2/S1.4 (S1
-revision (g)): one call per (entity, side), requesting V variants each, run
-concurrently (bounded by a semaphore) rather than one at a time. Requires
-OPENAI_API_KEY and results/population.json (preprocess/entities.py:save_population).
+revision (g)): one call per (entity, side), requesting a per-(entity, side) variant
+count -- 8 total per entity, split unevenly across sides in proportion to that
+entity's (n_a, n_b) via preprocess/scheduler.py:variants_per_side, not a flat V for
+every side. Run concurrently (bounded by a semaphore) rather than one at a time.
+Requires OPENAI_API_KEY and results/population.json
+(preprocess/entities.py:save_population), whose "contested" dict must already carry
+v_a/v_b (added by the T=32->T=80 migration; variants_per_side for any population
+built fresh going forward).
 
     python -m preprocess.generate_vignettes
-    python -m preprocess.generate_vignettes --concurrency 20 --n-variants 5
+    python -m preprocess.generate_vignettes --concurrency 20
 
 Output: preprocess/data_pools/vignettes/<entity_id>_<side>.json, one file per
 (entity, side) so concurrent tasks never contend over the same file. Resumable: a
-file already on disk with >= --min-variants entries is skipped.
+file already on disk with >= that pair's target variant count (v_a or v_b) is
+skipped.
 """
 from __future__ import annotations
 
@@ -31,8 +37,6 @@ DEFAULT_CONCURRENCY = 10  # conservative default -- actual account-level rate li
 # are not known in advance; raise if your tier supports more, backoff below handles
 # 429s either way rather than crashing the whole job
 MAX_ATTEMPTS = 3  # whole-call retries if too few variants pass the value-fidelity check
-MIN_VARIANTS = 3  # accept a (entity, side) with fewer than V variants after retries
-# exhausted, rather than blocking the whole job on one stubborn case
 INITIAL_BACKOFF_SECONDS = 2.0
 BACKOFF_MULTIPLIER = 2.0
 
@@ -56,6 +60,17 @@ def load_population() -> list[dict]:
         return json.load(f)
 
 
+def load_variants(entity_id: str, side: str) -> list[str]:
+    path = VIGNETTES_DIR / f"{entity_id}_{side}.json"
+    if not path.exists():
+        return []
+    try:
+        with open(path) as f:
+            return json.load(f).get("variants", [])
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
 def facts_for_side(entity: dict, side: str) -> list[tuple[str, str]]:
     contested = entity["contested"]
     contested_label = RELATION_BY_KEY[contested["relation_key"]].label
@@ -66,13 +81,20 @@ def facts_for_side(entity: dict, side: str) -> list[tuple[str, str]]:
     return facts
 
 
-def already_done(entity_id: str, side: str, min_variants: int) -> bool:
+def target_variants(entity: dict, side: str) -> int:
+    """Per-(entity, side) variant target from population.json's v_a/v_b
+    (preprocess/scheduler.py:variants_per_side) -- not a flat constant."""
+    contested = entity["contested"]
+    return contested["v_a"] if side == "A" else contested["v_b"]
+
+
+def already_done(entity_id: str, side: str, target: int) -> bool:
     path = VIGNETTES_DIR / f"{entity_id}_{side}.json"
     if not path.exists():
         return False
     try:
         data = json.load(open(path))
-        return len(data.get("variants", [])) >= min_variants
+        return len(data.get("variants", [])) >= target
     except (json.JSONDecodeError, OSError):
         return False
 
@@ -85,13 +107,23 @@ async def generate_one(
     model: str,
     temperature: float,
     semaphore: asyncio.Semaphore,
-    min_variants: int,
 ) -> tuple[str, str, int]:
-    """Returns (entity_id, side, n_variants_written)."""
+    """Returns (entity_id, side, n_variants_written). n_variants is this pair's
+    target (population.json v_a/v_b). Tops up rather than replaces: existing
+    variants already on disk (valid content -- facts/values don't change when only
+    a target count does, e.g. after a T/variants_per_side revision) are kept, and
+    only the shortfall is requested and generated, shown to the model so it avoids
+    near-duplicating them. There is no separate lower floor beyond the target
+    itself, since the target is already the minimum a given split level needs
+    (e.g. 1 for the low-occurrence side of an extreme split)."""
     entity_id = entity["entity_id"]
     name = entity["name"]
     facts = facts_for_side(entity, side)
-    prompt = vignette_prompt(name, facts, n_variants=n_variants)
+    existing = load_variants(entity_id, side)
+    needed = n_variants - len(existing)
+    if needed <= 0:
+        return entity_id, side, len(existing)
+    prompt = vignette_prompt(name, facts, n_variants=needed, existing=existing)
 
     async with semaphore:
         backoff = INITIAL_BACKOFF_SECONDS
@@ -118,7 +150,7 @@ async def generate_one(
             # is findable for scoring, which a case-insensitive match still locates.
             good = [c for c in candidates if all(value.lower() in c.lower() for _, value in facts)]
             variants = good if len(good) > len(variants) else variants
-            if len(variants) >= n_variants:
+            if len(variants) >= needed:
                 break
             if attempt < MAX_ATTEMPTS:
                 print(
@@ -126,22 +158,21 @@ async def generate_one(
                     f"only {len(good)}/{len(candidates)} variants passed value-fidelity check; retrying"
                 )
 
-        if len(variants) < min_variants:
+        if len(variants) < needed:
             print(
-                f"[WARN] {entity_id} side {side}: only {len(variants)}/{n_variants} variants "
-                f"survived after {MAX_ATTEMPTS} attempts (< min_variants={min_variants}), accepting anyway"
+                f"[WARN] {entity_id} side {side}: only {len(variants)}/{needed} new variants "
+                f"survived after {MAX_ATTEMPTS} attempts, accepting anyway"
             )
 
+    merged = existing + variants
     VIGNETTES_DIR.mkdir(parents=True, exist_ok=True)
     out_path = VIGNETTES_DIR / f"{entity_id}_{side}.json"
     with open(out_path, "w") as f:
-        json.dump({"entity_id": entity_id, "side": side, "variants": variants}, f, indent=2)
-    return entity_id, side, len(variants)
+        json.dump({"entity_id": entity_id, "side": side, "variants": merged}, f, indent=2)
+    return entity_id, side, len(merged)
 
 
-async def run(
-    n_variants: int, model: str, temperature: float, concurrency: int, min_variants: int, limit: int | None = None
-) -> None:
+async def run(model: str, temperature: float, concurrency: int, limit: int | None = None) -> None:
     import openai
 
     population = load_population()
@@ -151,7 +182,7 @@ async def run(
         (entity, side)
         for entity in population
         for side in ("A", "B")
-        if not already_done(entity["entity_id"], side, min_variants)
+        if not already_done(entity["entity_id"], side, target_variants(entity, side))
     ]
     total = len(population) * 2
     skipped = total - len(tasks_needed)
@@ -169,7 +200,8 @@ async def run(
 
     async def _run_one(entity, side):
         nonlocal completed
-        result = await generate_one(client, entity, side, n_variants, model, temperature, semaphore, min_variants)
+        n_variants = target_variants(entity, side)
+        result = await generate_one(client, entity, side, n_variants, model, temperature, semaphore)
         async with lock:
             completed += 1
             if completed % 50 == 0 or completed == len(tasks_needed):
@@ -187,32 +219,31 @@ async def run(
     # keep going, rather than losing an hour of progress to one bad task.
     raw_results = await asyncio.gather(*(_run_one(e, s) for e, s in tasks_needed), return_exceptions=True)
     results = []
+    n_short = 0
     for (entity, side), r in zip(tasks_needed, raw_results):
         if isinstance(r, Exception):
             print(f"[ERROR] {entity['entity_id']} side {side}: unhandled {r!r} -- left incomplete on disk, rerun to retry")
-        else:
-            results.append(r)
-    n_short = sum(1 for _, _, n in results if n < n_variants)
+            continue
+        results.append(r)
+        _, _, n = r
+        if n < target_variants(entity, side):
+            n_short += 1
     print(
         f"\nDone: {len(results)}/{len(tasks_needed)} generated ({len(tasks_needed) - len(results)} errored), "
-        f"{n_short} came in under the requested {n_variants} variants."
+        f"{n_short} came in under their per-pair target."
     )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--n-variants", type=int, default=5)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
-    parser.add_argument("--min-variants", type=int, default=MIN_VARIANTS)
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N entities (testing).")
     args = parser.parse_args()
 
     preflight_check(args.model)
-    asyncio.run(
-        run(args.n_variants, args.model, args.temperature, args.concurrency, args.min_variants, args.limit)
-    )
+    asyncio.run(run(args.model, args.temperature, args.concurrency, args.limit))
 
 
 if __name__ == "__main__":
