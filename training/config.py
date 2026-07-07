@@ -70,37 +70,67 @@ class DataConfig:
     batch_size: int = 192
     grad_accum_steps: int = 1
     num_workers: int = 2
+    # shuffle=True/overlapping=True (both defaults) preserve the exact prior training
+    # behavior for existing configs. Setting both False is what makes an occurrence's
+    # absolute token position (results/occurrence_log.json) map to a fixed training
+    # step at all -- see training/data.py:PackedTokenDataset's overlapping docstring
+    # and training/injection_schedule.py -- appropriate only for a corpus sized for
+    # ~one epoch (experimental_plans.tex S1.9), which full_run.yaml's is.
+    shuffle: bool = True
+    overlapping: bool = True
 
 
 @dataclasses.dataclass
 class CheckpointConfig:
-    """Dual-cadence policy, experimental_plans.tex §1.4."""
+    """Single-slot overwriting policy (supersedes the prior multi-checkpoint
+    sparse-rotation + dense-stratified-retention design, experimental_plans.tex
+    §1.4): exactly one full checkpoint (weights + optimizer + RNG state) ever lives
+    on disk at output/<run_name>/checkpoints/latest/, at any point in the run.
+    Every save -- sparse-cadence or the unconditional final save -- overwrites that
+    same slot (training/checkpoint.py:CheckpointManager._save_full swaps it in via
+    a directory rename, not an in-place file overwrite, so a crash mid-write can't
+    corrupt the one surviving checkpoint). Explicit request: at most one pair of
+    weights stored on disk the whole time, so N simultaneous training jobs cost a
+    small, constant amount of checkpoint storage regardless of run length.
+    Dense/event-triggered checkpointing no longer captures full weights at all (that
+    was the source of unbounded accumulation this change removes) -- only its
+    metrics-only markers remain, still useful for a fine-grained loss/eval timeline
+    near occurrence events even though no extra weight snapshots exist to inspect
+    later."""
 
     # Sparse/global cadence: full checkpoint (weights + optimizer + RNG state) every
-    # sparse_interval_steps, sized so a crash loses ~10-15 min of compute. Computed
-    # from the *reference* 178,000 tok/s (nanoGPT single-A100 benchmark cited in
-    # experimental_plans.tex's Optimization section) at batch=192/n_positions=512
-    # (98,304 tok/step) -> ~1.81 steps/sec -> ~1,086-1,629 steps for 10-15 min;
-    # 1200 sits in that range. Still provisional -- that reference figure assumes
-    # torch.compile/fused-optimizer throughput this pipeline may or may not hit;
-    # re-tune once real per-step throughput is measured on the cluster (see
-    # training/README note).
-    sparse_interval_steps: int = 1200
-    keep_last_n_sparse: int = 3  # rolling retention; -1 keeps all
+    # sparse_interval_steps, sized so a crash loses ~30 min of compute (loosened from
+    # an earlier ~10-15min bound -- explicit request for a sparser cadence, less
+    # checkpoint-write overhead/storage churn). Computed from the *reference*
+    # 178,000 tok/s (nanoGPT single-A100 benchmark cited in experimental_plans.tex's
+    # Optimization section) at batch=192/n_positions=512 (98,304 tok/step) ->
+    # ~1.81 steps/sec -> ~3,259 steps for 30min; 3200 rounds down to keep the bound
+    # at or under 30min. Still provisional -- that reference figure assumes
+    # torch.compile/fused-optimizer throughput this pipeline may or may not hit at
+    # batch=192 specifically; training/configs/full_run.yaml uses a value re-derived
+    # from real measured throughput at its own batch_size=128 instead (see that
+    # file's comment and experimental_plans.tex's checkpointing-section revision
+    # note).
+    sparse_interval_steps: int = 3200
 
-    # Dense/event-triggered cadence: denser checkpointing in a window around each
-    # fact-injection step. Empty until M2 supplies the actual injection schedule.
-    # interval/window divided by 4 alongside DataConfig.batch_size's 4x increase,
-    # so both stay pinned to the same *token*-space resolution around an injection
-    # event regardless of batch size.
+    # Dense/event-triggered cadence: denser metrics logging in a window around each
+    # fact-injection step (no full weights, see class docstring). Left empty and
+    # computed at runtime (train.py, via training/injection_schedule.py) rather than
+    # hardcoded in YAML, whenever occurrence_log_path is set below -- explicit YAML
+    # values are only used as a manual override for cases without an occurrence log
+    # (e.g. --smoke-test). interval/window divided by 4 alongside DataConfig.
+    # batch_size's 4x increase, so both stay pinned to the same *token*-space
+    # resolution around an injection event regardless of batch size.
     injection_steps: list[int] = dataclasses.field(default_factory=list)
+    # Path to preprocess/assemble_corpus.py's occurrence_log.json. When set (and
+    # data.shuffle/data.overlapping are both False -- see DataConfig), train.py
+    # derives injection_steps automatically instead of using the (then-ignored)
+    # injection_steps field above. None (default) preserves prior behavior:
+    # injection_steps comes only from YAML (empty unless set explicitly), and the
+    # dense cadence stays inert.
+    occurrence_log_path: Optional[str] = None
     dense_interval_steps: int = 50
     dense_window_steps: int = 250  # +/- window around each injection step
-    # Of the dense checkpoints inside a window, keep full weights only for a
-    # stratified subset (first K + random sample of the rest); metrics are kept for
-    # all of them regardless. See experimental_plans.tex §1.4.
-    dense_full_weight_first_k: int = 2
-    dense_full_weight_sample_rate: float = 0.1
 
 
 @dataclasses.dataclass

@@ -24,9 +24,27 @@ from torch.utils.data import Dataset
 
 
 class PackedTokenDataset(Dataset):
-    """Fixed-length blocks sampled from a flat memmap of token ids."""
+    """Windows sampled from a flat memmap of token ids.
 
-    def __init__(self, data_dir: str | Path, block_size: int):
+    `overlapping=True` (default, prior behavior unchanged): every single-token-shifted
+    offset is a valid window, the nanoGPT-style convention that pairs naturally with
+    `shuffle=True` + resampling-with-replacement-across-epochs (training/train.py's
+    infinite_loader) -- appropriate when total training tokens are meant to exceed the
+    on-disk corpus many times over.
+
+    `overlapping=False`: windows are non-overlapping block_size-token chunks (window i
+    starts at token i*block_size). This is what makes a token position map to a
+    training step at all: under `overlapping=True` + `shuffle=True`, a given occurrence
+    event's absolute token position corresponds to a randomly-ordered window with no
+    fixed step, so training/injection_schedule.py's step derivation requires this mode
+    (paired with shuffle=False -- see training/train.py) to hold. Only sensible for a
+    ~single-epoch run (on-disk tokens ~= total training tokens, experimental_plans.tex
+    S1.9's corpus-vs-training-tokens distinction): consuming it non-overlapping avoids
+    the redundant, nearly-identical-content batches that sequential *overlapping*
+    windows (offsets 0,1,2,...) would otherwise produce.
+    """
+
+    def __init__(self, data_dir: str | Path, block_size: int, overlapping: bool = True):
         data_dir = Path(data_dir)
         meta_path = data_dir / "meta.json"
         if not meta_path.exists():
@@ -44,16 +62,22 @@ class PackedTokenDataset(Dataset):
 
         self.shards = [np.memmap(p, dtype=dtype, mode="r") for p in shard_paths]
         self.block_size = block_size
-        # number of non-overlapping (input, target) windows available per shard
-        self._lengths = [max(0, len(s) - block_size - 1) for s in self.shards]
-        self._cum_lengths = np.cumsum(self._lengths)
+        self.overlapping = overlapping
+        self._stride = 1 if overlapping else block_size
+        usable = [max(0, len(s) - block_size - 1) for s in self.shards]
+        if overlapping:
+            self._lengths = usable  # exact prior formula/behavior, unchanged
+        else:
+            self._lengths = [(u // self._stride + 1) if u > 0 else 0 for u in usable]
+        self._cum_lengths = np.cumsum(self._lengths) if self._lengths else np.array([], dtype=np.int64)
 
     def __len__(self) -> int:
         return int(self._cum_lengths[-1]) if len(self._cum_lengths) else 0
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         shard_idx = int(np.searchsorted(self._cum_lengths, idx, side="right"))
-        offset = idx - (self._cum_lengths[shard_idx - 1] if shard_idx > 0 else 0)
+        within_idx = idx - (self._cum_lengths[shard_idx - 1] if shard_idx > 0 else 0)
+        offset = within_idx * self._stride
         shard = self.shards[shard_idx]
         chunk = shard[offset : offset + self.block_size + 1].astype(np.int64)
         x = torch.from_numpy(chunk[:-1])
@@ -90,14 +114,19 @@ def build_datasets(
     vocab_size: int,
     block_size: int,
     seed: int = 0,
+    overlapping: bool = True,
 ) -> tuple[Dataset, Dataset]:
     """Returns (train_dataset, val_dataset). Falls back to DummyTokenDataset when no
-    path is configured (see DataConfig.train_path docstring in training/config.py)."""
+    path is configured (see DataConfig.train_path docstring in training/config.py).
+    `overlapping` only affects the train dataset -- val is always evaluated over
+    non-overlapping chunks (PackedTokenDataset's default `overlapping=True` param name
+    refers to windowing, not to whether eval batches revisit data; a small, fixed val
+    set is read in full regardless of stride)."""
     if train_path is None:
         train_ds = DummyTokenDataset(vocab_size, block_size, num_examples=2000, seed=seed)
         val_ds = DummyTokenDataset(vocab_size, block_size, num_examples=200, seed=seed + 1)
         return train_ds, val_ds
 
-    train_ds = PackedTokenDataset(train_path, block_size)
-    val_ds = PackedTokenDataset(val_path or train_path, block_size)
+    train_ds = PackedTokenDataset(train_path, block_size, overlapping=overlapping)
+    val_ds = PackedTokenDataset(val_path or train_path, block_size, overlapping=False)
     return train_ds, val_ds

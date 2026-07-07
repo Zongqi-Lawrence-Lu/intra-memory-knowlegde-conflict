@@ -21,8 +21,11 @@ plots/            tracked -- figures generated from results/
 slurm/            SLURM stdout/stderr (*.out, gitignored); no job scripts checked in
                   yet (*.sbatch is gitignored project-wide).
 experiments/      one descriptively-named subfolder per experiment run
-preprocess/       M2 (not yet built): synthetic conflict-corpus generator
-training/         M4: GPT-2-small-from-scratch training pipeline (this milestone)
+preprocess/       M2: synthetic conflict-corpus generator (pools, vignettes, corpus
+                  assembly) + held-out WikiText-103 eval-set packing
+training/         M4: GPT-2-small-from-scratch training pipeline
+eval/             M3: shared eval harness -- per-fact recall scoring against trained
+                  checkpoints (held-out perplexity itself stays in training/eval.py)
 prompting/        M5 (not yet built): baseline class (i), prompting-based mitigation
 inference_time/   M6 (in progress): baseline class (ii), inference-time interference
 training_time/    M7 (in progress): baseline class (iii), training-time interference
@@ -46,32 +49,71 @@ the standard pretrained GPT-2 BPE tokenizer's vocabulary size is reused.
   before real data exists. `data.train_path: null` in the config selects the dummy
   path.
 - `checkpoint.py` -- dual-cadence, step-indexed checkpointing (experimental_plans.tex
-  §1.4): a sparse/global cadence for restart safety, and a dense/event-triggered
-  cadence around each entry of `checkpoint.injection_steps` (empty until the M2
-  corpus generator supplies a real insertion schedule) for catching phase
-  transitions. Only a stratified subset of dense checkpoints keep full weights;
-  the rest keep metrics only.
-- `eval.py` -- held-out perplexity (experimental_plans.tex §1.5). Per-fact recall is
-  out of scope here -- it needs fact metadata from M2 and belongs to the shared
-  eval harness (M3), not the training loop.
+  checkpointing section): a sparse/global cadence for restart safety (bounding
+  crash loss to ~30 min of compute), and a dense/event-triggered cadence around
+  each entry of `checkpoint.injection_steps` for catching phase transitions. Only a
+  stratified subset of dense checkpoints keep full weights; the rest keep metrics
+  only. An unconditional final save (`save_final`, called once after the training
+  loop ends) guarantees the true last-step weights are always on disk, regardless
+  of where the sparse cadence last landed. `list_full_checkpoints()` is the shared
+  checkpoint-discovery helper `eval/recall.py` and `training/probe_fact.py` reuse.
+- `injection_schedule.py` -- derives `checkpoint.injection_steps` from a real
+  `results/occurrence_log.json` for a representative subset of entities (one per
+  relation-type x split-level cell). Only meaningful when `data.shuffle` and
+  `data.overlapping` are both `False` (see `data.py` below) -- under the default
+  shuffled/overlapping regime, a token position doesn't map to a fixed step.
+- `data.py` -- `PackedTokenDataset` reads pre-tokenized shards from `preprocess/`
+  output (`meta.json` + `*.bin`, nanoGPT-style flat memmap convention). Default
+  (`overlapping=True`) samples every single-token-shifted window, pairing with
+  `shuffle=True` for a corpus meant to be resampled many times over; setting both
+  `False` switches to non-overlapping `block_size`-token chunks read in a fixed
+  sequential order, which is what makes an occurrence's token position map to a
+  training step at all (`injection_schedule.py`). `DummyTokenDataset` generates
+  random tokens purely to exercise the training loop before real data exists;
+  `data.train_path: null` in the config selects the dummy path.
+- `eval.py` -- held-out perplexity (experimental_plans.tex eval section). Per-fact
+  recall lives in `eval/recall.py` instead (the M3 shared eval harness) -- it needs
+  fact metadata from M2 and a trained checkpoint, not the training loop itself.
 - `train.py` -- the training loop / CLI entrypoint (`python -m training.train
   --config training/configs/default.yaml`). `--smoke-test` shrinks the model/data to
   run a few steps quickly to sanity-check the loop mechanics (checkpointing, resume,
   logging); it must only be run where a GPU is actually available (see CLAUDE.md §5).
+- `probe_fact.py` -- one-off diagnostic: probes a single random (or pinned) fact
+  against a checkpoint's next-token logits. For population-wide recall scoring use
+  `eval/recall.py` instead; this is for quick spot checks.
 - `logging_utils.py` -- console + per-run file logging (file goes to `output/`, not
   `results/`, so detailed logs are never committed).
 
 Not yet implemented / open items:
-- `checkpoint.sparse_interval_steps` in `configs/default.yaml` is a placeholder
-  pending real per-step throughput profiling on the cluster (needed to hit the
-  ~10-15 min compute-loss bound from experimental_plans.tex §1.4).
-- `checkpoint.injection_steps` is empty until M2 (corpus generator) supplies the
-  actual insertion schedule.
 - No multi-GPU/DDP support yet -- single-device only, per the default single-A40
   plan in CLAUDE.md §2; noted as a possible escalation, not built until needed.
 - No cluster job script is checked in (`*.sbatch` is gitignored); a training run
   needs an sbatch header added before submission, and per CLAUDE.md §5 the run's
   estimated duration/resources must be confirmed before any job is actually submitted.
+- `injection_schedule.py`'s step derivation assumes a fresh (non-resumed) run --
+  after a crash/resume, `train_iter` restarts from chunk 0 regardless of
+  `start_step`, so derived injection_steps drift slightly relative to actual step
+  numbers post-resume. Pre-existing limitation of the resume path, not new.
+
+## eval/
+
+Shared eval harness (M3, experimental_plans.tex eval section) -- decoupled from the
+training loop since it operates on saved checkpoints independently, at any time.
+
+- `recall.py` -- per-fact recall: for every entity in `results/population.json` and
+  every one of its 5 facts (1 contested relation + 4 background), renders the fixed
+  eval-only probing template (`preprocess/data_pools/templates/`, kept separate from
+  training text per experimental_plans.tex's eval-decoupling design), runs one
+  batched (left-padded) forward pass per probe, and records log-probability + rank
+  for the target value(s). Contested facts score both candidates from the same
+  forward pass and report which side the model favors against which side had more
+  exposures; background facts report the true value's rank/logprob. Writes
+  `results/<run_name>/recall_eval_step<N>.json`: every raw per-fact record plus
+  summary stats (per-split-level accuracy/logit-gap/confidence and a monotonicity-
+  violation count for contested facts, per-relation-type mean/median rank for
+  background facts -- the properties experimental_plans.tex's calibration section
+  asks for). `--checkpoint-step`/`--all-checkpoints` select which checkpoint(s) to
+  score; defaults to the latest. Needs a GPU (see CLAUDE.md §5).
 
 ## training_time/
 

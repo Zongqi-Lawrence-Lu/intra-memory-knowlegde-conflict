@@ -29,12 +29,9 @@ data:
 
 checkpoint:
   sparse_interval_steps: 500
-  keep_last_n_sparse: 3
   injection_steps: []
   dense_interval_steps: 200
   dense_window_steps: 1000
-  dense_full_weight_first_k: 2
-  dense_full_weight_sample_rate: 0.1
 
 eval:
   eval_interval_steps: 500

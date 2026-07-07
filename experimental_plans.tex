@@ -143,6 +143,84 @@
 % "succeed" against the now-superseded value) were reset to empty pending
 % regeneration -- deliberately not regenerated in the same pass, per instruction
 % not to make further API calls during the recovery itself.
+% STATUS (2026-07-06): full-scale corpus assembly (job 952726,
+% slurm/assemble_full_openwebtext_corpus.sbatch) completed successfully, 2h27m,
+% no errors -- 2,514,194,374-token packed stream (134,400 occurrences over 1,680
+% entities), matching the S1.7 injected-token-floor estimate. Independently
+% verified after completion, not just trusted from the exit code: shard byte size
+% matches the reported token count exactly; every entity has exactly T=80 total
+% occurrences; all 6 split levels (\S\ref{sec:scale}) are exactly balanced at 280
+% entities each; every occurrence position is in-bounds; a decoded sample
+% (entity\_0468, side A) showed a clean backbone-article / \texttt{<|endoftext|>}
+% / vignette boundary with coherent, on-spec generated text. Corpus is good.
+% STATUS (2026-07-06, cont'd): first training submission (job 952727,
+% slurm/train\_full\_run.sbatch, depended on 952726) was OOM-killed by the
+% cgroup 9 minutes in, immediately after the ``torch.compile enabled'' log line
+% and before the first training-step log -- MaxRSS 66.77GB against the
+% requested 64GB. This was host RAM, not GPU VRAM (plain kernel \texttt{Killed}
+% plus a slurmstepd \texttt{oom\_kill} event, no CUDA OOM traceback), so it is a
+% different failure mode than the batch\_size=192/GPU-memory risk flagged in
+% \S\ref{sec:optimization} -- most likely \texttt{torch.compile}/Inductor's
+% autotuning-compilation memory spike on its first call. Fixed by raising
+% \texttt{slurm/train\_full\_run.sbatch}'s \texttt{--mem} 64gb $\to$ 128gb only
+% (the node class in use has $\sim$1TB RAM with ample unallocated headroom for a
+% single-GPU job) -- batch\_size, lr, warmup, and every other optimization
+% hyperparameter in \S\ref{sec:optimization} are unchanged. Resubmitted without a
+% SLURM dependency (the corpus already exists on disk and was verified above).
+% If this recurs at 128GB, the next step should be measuring
+% \texttt{torch.compile}'s actual host-memory footprint directly rather than
+% guessing again, before a further blind \texttt{--mem} increase.
+% STATUS (2026-07-06, cont'd): resubmission (job 952950, --mem=128gb) got past
+% the host-RAM OOM (MaxRSS 113GB, under the new 128GB request) but died 15
+% minutes in with a genuine \emph{CUDA} OOM in \texttt{loss.backward()}: tried to
+% allocate 9.21GiB for the compiled backward graph's logits buffer
+% (\texttt{(98304, 50264)} bf16 -- exactly batch\_size$\times$n\_positions
+% $=192\times512$ rows by the padded vocab), with only 8.16GiB free of 79.25GiB
+% and 71.05GB already resident. This is precisely the risk \S\ref{sec:optimization}
+% flagged as unvalidated (``whether 192 actually fits comfortably in 80GB... with
+% a fallback to a smaller batch (e.g. 96 or 128)... if not''), now confirmed: it
+% does not fit. Applying that pre-authorized fallback, not a fresh design
+% decision: \textbf{batch\_size: 192 $\to$ 128}
+% (\texttt{training/configs/full\_run.yaml}). Re-derived the same way as the
+% original 48$\to$192 revision, holding total training tokens
+% ($2.5\times10^9$) and every interval's token-space cadence fixed:
+% \begin{itemize}
+%   \item \texttt{lr}: $1.2\times10^{-3} \to 9.8\times10^{-4}$
+%     ($1.2\times10^{-3}\cdot\sqrt{128/192}$, same Malladi et al.\ sqrt rule).
+%   \item \texttt{warmup\_steps}: $500\to750$ ($750\times65{,}536 =
+%     500\times98{,}304$ tok/step exactly).
+%   \item \texttt{max\_steps}: $25{,}425\to38{,}146$ (re-solved for
+%     $2.5\times10^9$ tokens at the new $128\times512=65{,}536$ tok/step).
+%   \item \texttt{sparse\_interval\_steps}/\texttt{dense\_interval\_steps}/
+%     \texttt{dense\_window\_steps}: $1200/50/250 \to 1800/75/375$ (exact,
+%     $\times 1.5$ for the $98{,}304/65{,}536=1.5$ tok/step ratio).
+%   \item \texttt{eval\_interval\_steps}: $125\to188$ (188 not exact --
+%     $125\times1.5=187.5$ -- rounded up; negligible effect on eval cadence).
+% \end{itemize}
+% Expected peak GPU memory at batch=128 is $\approx(128/192)\times80.26\text{GB}
+% \approx 53.5$GB (the dominant OOM'd buffer scales linearly with batch\_size,
+% confirmed by the exact $98{,}304=192\times512$ row count above), leaving
+% $\approx$26GB of headroom under the 79.25GB device capacity -- not just barely
+% clearing the observed shortfall. \texttt{--mem=128gb} (previous fix) is
+% unchanged; host RAM was not the problem this time. Resubmitted as job 952981.
+% STATUS (2026-07-07): OpenWebText backbone tokenization cached once for reuse
+% across the $T$-sweep (job 969685, preprocess/cache\_backbone.py): 37 chunk
+% files, $\approx2{,}500{,}000{,}568$ backbone tokens, verified complete
+% (meta.json/state.json chunk counts match, log confirms completion) -- resumed
+% cleanly after an earlier timeout (job 961115, network-bound, killed at its 4h
+% limit $\approx$50\% done) via the checkpointed \texttt{state.json} design. The
+% completed T=80 baseline run's own eval (\S\ref{sec:eval}) came back
+% near-chance on the contested-recall metric (per-split-level accuracy
+% 0.46--0.56 across all 6 levels, 3/6 monotonicity violations, symmetry-at-balance
+% logit gap $-0.29$) -- empirical confirmation, not just the reasoned suspicion
+% of \S\ref{sec:seeds}, that $T=80$ undershoots the point where the frequency
+% signal is reliably learned; this is the direct motivation for re-running $T=80$
+% alongside $160/320/640$ (all four assembled fresh from the shared cache, for a
+% consistent corpus-construction code path across the whole sweep) rather than
+% reusing the existing \texttt{data/processed/full-run} corpus as-is. Also this
+% session: the checkpointing policy (\S\ref{sec:checkpointing}) and the
+% background-recall test (\S\ref{sec:eval}) were both revised -- see those
+% subsections' own revision notes for the details.
 
 \section{Model and Training Pipeline}
 
@@ -836,18 +914,46 @@ occurrences (\S\ref{sec:scheduler}) into the packed token shards
 \subsection{Checkpointing}
 \label{sec:checkpointing}
 
-Two concurrent, step-indexed cadences (supersedes the wall-clock checkpoint
-rule in CLAUDE.md \S5 for this pipeline):
+% REVISION (2026-07-07): single-slot overwrite policy adopted, superseding the
+% dual-cadence sparse-rotation + dense-stratified-full-weight-retention design
+% below in its entirety (training/checkpoint.py, training/config.py). Explicit
+% request: at most one pair of weights (model + optimizer state) stored on disk
+% the whole time, so N simultaneously-running conditions (the T-sweep,
+% \S\ref{sec:seeds}) cost a small, constant amount of checkpoint storage
+% regardless of run length, rather than accumulating a stratified sample of
+% dense full-weight snapshots per run as before. Every full save -- sparse-cadence
+% or the unconditional final save -- now overwrites the same
+% \texttt{checkpoints/latest/} directory via a crash-safe rename-swap (write to a
+% fresh temp dir, then two atomic directory renames to swap it in for
+% \texttt{latest/} and discard the old one) rather than an in-place file
+% overwrite, so a crash mid-write can never corrupt the one surviving checkpoint.
+% The final save supersedes whatever sparse checkpoint preceded it by the same
+% mechanism. \textbf{Accepted cost, not an oversight}: dense checkpointing no
+% longer captures full weights at all -- only its metrics-only markers remain
+% (still a fine-grained loss/eval timeline near occurrence events). This removes
+% the capability the paragraph below originally described (retrospective
+% sparse-grid or dense-window mechanistic probing across a run's history, e.g.
+% for the logit-lens/activation-patching/linear-probe work of
+% \S\ref{sec:eval}) -- only the single most recent checkpoint is ever
+% inspectable after a run finishes or is interrupted.
 
+Single overwriting slot, step-indexed (supersedes both the wall-clock checkpoint
+rule in CLAUDE.md \S5 and the prior dual-cadence sparse-rotation/dense-retention
+design for this pipeline):
 \begin{itemize}
   \item \textbf{Sparse}: full checkpoint (weights, optimizer state, RNG state)
     every $S$ steps, $S$ set to bound compute loss on crash to
-    $\sim$10--15 minutes at measured throughput.
+    $\sim$30 minutes at measured throughput -- overwrites
+    \texttt{checkpoints/latest/} in place (rename-swap) rather than
+    accumulating a rolling window of past checkpoints.
   \item \textbf{Dense}: every few hundred steps within a fixed window
-    following each contested-relation occurrence event (\S\ref{sec:scheduler}).
-    Eval metrics are retained for every dense checkpoint; full weights are
-    retained only for a stratified subset of occurrence events and deleted
-    otherwise.
+    following each contested-relation occurrence event (\S\ref{sec:scheduler}),
+    logs eval metrics only. No full weights are ever captured on this cadence
+    (see revision note above).
+  \item \textbf{Final}: an unconditional full save at the true last training
+    step, which likewise overwrites \texttt{checkpoints/latest/} -- the final
+    trained state supersedes whatever sparse checkpoint preceded it, and is
+    what any downstream eval (\S\ref{sec:eval}) reads by default.
 \end{itemize}
 
 \subsection{Evaluation}
@@ -864,9 +970,43 @@ Run at every checkpoint:
     (non-instruction-tuned) checkpoints cannot be reliably prompted for
     parseable short-answer output.
 \end{itemize}
+
+% REVISION (2026-07-07): checkpointing moved to a single-slot overwrite policy
+% (\S\ref{sec:checkpointing}) -- only the most recent checkpoint is ever on disk,
+% so the sparse-cadence-grid mechanistic-probing plan below is no longer
+% executable after the fact. Retained here as a statement of intent for any
+% future run that explicitly re-enables multi-checkpoint retention, not as a
+% description of what the current pipeline can do.
 Mechanistic probes (logit lens, activation patching, linear probes for
-which-fact-is-preferred) run on the sparse-cadence grid only, at windows
-flagged by the recall curves.
+which-fact-is-preferred), where run, would use the sparse-cadence grid at
+windows flagged by the recall curves -- not currently possible against a
+completed/in-progress run under \S\ref{sec:checkpointing}'s single-slot policy.
+
+\textbf{Non-conflict (background) recall test} (2026-07-07, \texttt{eval/recall.py}):
+a dedicated evaluation focus on the $4$ background (non-contested) facts per
+entity, deliberately separate from the contested-term calibration question
+above -- background facts receive exactly $T$ exposures per entity regardless
+of contested split level (\S\ref{sec:entity}), so this gives one clean
+recall-vs-$T$ curve per relation type, decoupled from split-level conditioning
+entirely, and serves as a check that training produced any fact learning at
+all, independent of the harder frequency-calibration question. Uses the same
+fixed-template probing stem as contested recall (\S\ref{sec:divergence}), but
+scored against the \emph{whole} $50{,}257$-token vocabulary at absolute
+probability -- an explicit design choice against restricting to a
+same-relation-type candidate pool, so the model must outscore every plausible
+completion, not just other entries from that relation's value pool. Metrics,
+per relation type and pooled overall across all $6{,}720$ background probes
+($1{,}680$ entities $\times$ 4 facts): \textbf{top-1 accuracy} (correct token
+is the model's argmax), \textbf{top-5 accuracy} (correct token ranks in the top
+5), and \textbf{logit margin} (signed: the model's winning margin over the
+runner-up when its top pick is correct, or the deficit behind its actual top
+pick when wrong -- computed from the same log-softmax row already used for
+rank, so this is numerically identical to a raw-logit margin). The pooled
+figure is the one compared across the $T$-sweep (\S\ref{sec:seeds}); per-record
+\texttt{relation\_key}/\texttt{entity\_id} tags are retained in the output JSON
+so results remain sliceable by relation type after the fact. Legacy full-vocab
+mean/median rank and mean log-probability are kept as secondary context, not
+replaced.
 
 \textbf{Resolved (S1 revision (g), \S\ref{sec:assembly})}: the per-fact recall metric
 above presumes the target value's first divergent token is well-defined and shared

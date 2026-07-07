@@ -27,10 +27,12 @@ from training.checkpoint import CheckpointManager
 from training.config import TrainingConfig
 from training.data import build_datasets
 from training.eval import compute_perplexity
+from training.injection_schedule import compute_injection_steps
 from training.logging_utils import setup_logging
 from training.model import build_model, count_parameters
 
 DTYPE_MAP = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}
+POPULATION_PATH = Path(__file__).parent.parent / "results" / "population.json"
 
 
 def set_seed(seed: int) -> None:
@@ -157,13 +159,18 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
         logger.info("torch.compile enabled")
 
     train_ds, val_ds = build_datasets(
-        cfg.data.train_path, cfg.data.val_path, cfg.model.vocab_size, cfg.model.n_positions, seed=cfg.run.seed
+        cfg.data.train_path,
+        cfg.data.val_path,
+        cfg.model.vocab_size,
+        cfg.model.n_positions,
+        seed=cfg.run.seed,
+        overlapping=cfg.data.overlapping,
     )
     sampler = build_sampler(train_ds) if build_sampler is not None else None
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg.data.batch_size,
-        shuffle=(sampler is None),
+        shuffle=(sampler is None and cfg.data.shuffle),
         sampler=sampler,
         num_workers=cfg.data.num_workers,
         drop_last=True,
@@ -177,6 +184,27 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
 
     optimizer = build_optimizer(raw_model, cfg.optim, device)
     scheduler = build_scheduler(optimizer, cfg.optim)
+
+    # Auto-derive injection_steps from a real occurrence log when configured, rather
+    # than using whatever's in YAML (empty by default) -- only valid under sequential,
+    # non-overlapping consumption (see training/injection_schedule.py's module
+    # docstring for why shuffle=True/overlapping=True breaks the position->step
+    # mapping this depends on).
+    if cfg.checkpoint.occurrence_log_path is not None:
+        if cfg.data.shuffle or cfg.data.overlapping:
+            logger.warning(
+                "checkpoint.occurrence_log_path is set but data.shuffle/overlapping "
+                "aren't both False -- injection_steps requires sequential, "
+                "non-overlapping consumption to mean anything; skipping auto-derivation."
+            )
+        else:
+            cfg.checkpoint.injection_steps = compute_injection_steps(
+                cfg.checkpoint.occurrence_log_path,
+                POPULATION_PATH,
+                block_size=cfg.model.n_positions,
+                batch_size=cfg.data.batch_size,
+            )
+            logger.info(f"derived {len(cfg.checkpoint.injection_steps)} injection_steps from {cfg.checkpoint.occurrence_log_path}")
 
     ckpt_mgr = CheckpointManager(cfg.checkpoint, cfg.run.output_dir, cfg.run.results_dir, cfg.run.run_name)
 
@@ -230,6 +258,12 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
             best_val_ppl = min(best_val_ppl, val_ppl)
 
         ckpt_mgr.maybe_save(step, raw_model, optimizer, scheduler, log_fn=logger.info)
+
+    # Unconditional save at the true last step -- maybe_save() only fires on the
+    # sparse/dense cadences, which can leave the last on-disk checkpoint up to
+    # sparse_interval_steps short of cfg.optim.max_steps (see CheckpointManager.
+    # save_final's docstring).
+    ckpt_mgr.save_final(cfg.optim.max_steps, raw_model, optimizer, scheduler, log_fn=logger.info)
 
     ckpt_mgr.shutdown()  # block until the last async checkpoint write actually finishes
     ckpt_mgr.write_run_summary(
