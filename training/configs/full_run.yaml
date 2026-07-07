@@ -10,6 +10,14 @@
 # calibration curve (S1.6) should be inspected once results are in, same as the
 # pilot itself would have inspected, just after spending the full run instead of
 # before.
+#
+# run_name changed to ...-sequential (was gpt2-small-baseline-openwebtext-t80, the
+# already-completed run under the old shuffle=True/overlapping=True regime) once
+# data.shuffle/overlapping flipped to False here: reusing the old run_name would
+# make a future launch of this config silently resume from that run's last
+# checkpoint (step 37,800 of 38,146) under different data-order semantics rather
+# than starting a clean sequential-consumption run. The completed baseline run's
+# output/results are untouched by this rename.
 
 model:
   n_layer: 12
@@ -19,36 +27,36 @@ model:
   vocab_size: 50257
 
 optim:
-  lr: 1.2e-3
+  lr: 9.8e-4
   weight_decay: 0.01
-  warmup_steps: 500
-  max_steps: 25425
+  warmup_steps: 750
+  max_steps: 38146
   lr_schedule: cosine
   min_lr_ratio: 0.1
   grad_clip: 1.0
 
 data:
   train_path: data/processed/full-run
-  val_path: null   # no separate held-out shard yet -- falls back to train_path
-  batch_size: 192
+  val_path: data/processed/held-out-wikitext-val   # real held-out WikiText-103 val split (preprocess/assemble_held_out.py), not a train_path fallback
+  batch_size: 128
   grad_accum_steps: 1
   num_workers: 2
+  shuffle: false        # sequential consumption -- required for injection_steps to mean anything, see training/injection_schedule.py
+  overlapping: false    # non-overlapping chunks -- ditto; also avoids near-duplicate content within a batch under sequential order
 
 checkpoint:
-  sparse_interval_steps: 1200   # provisional -- re-tune once real throughput is measured, see training/README.md
-  keep_last_n_sparse: 3
-  injection_steps: []          # left empty: no validated step<->occurrence-position mapping under shuffle=True (see training/configs/pipeline_test.yaml)
-  dense_interval_steps: 50
-  dense_window_steps: 250
-  dense_full_weight_first_k: 2
-  dense_full_weight_sample_rate: 0.1
+  sparse_interval_steps: 3400   # ~30min crash-loss bound at REAL measured throughput (~125,000 tok/s steady-state, results/gpt2-small-baseline-openwebtext-t80/train_metrics.jsonl) -- 1800s*125,000/65,536 tok-per-step ~= 3433, rounded down. See experimental_plans.tex's checkpointing-section revision note.
+  injection_steps: []          # ignored when occurrence_log_path (below) is set -- train.py derives this at runtime instead
+  occurrence_log_path: results/occurrence_log.json
+  dense_interval_steps: 75
+  dense_window_steps: 375
 
 eval:
-  eval_interval_steps: 125
+  eval_interval_steps: 188
   eval_batches: 50
 
 run:
-  run_name: gpt2-small-baseline-openwebtext-t80
+  run_name: gpt2-small-openwebtext-t80-sequential
   seed: 0
   output_dir: output
   results_dir: results

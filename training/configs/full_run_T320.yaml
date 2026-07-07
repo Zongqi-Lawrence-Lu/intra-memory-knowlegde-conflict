@@ -1,0 +1,62 @@
+# Exposure-budget pilot (experimental_plans.tex Sec. seeds): T=320 condition.
+# Same architecture/optim/token-budget as full_run.yaml (T=80 baseline) -- only the
+# corpus differs (results/population_T320.json's rescaled n_a/n_b, same entities/
+# values/vignettes, preprocess/rescale_population.py), isolating T as the swept
+# variable.
+#
+# Checkpointing now always overwrites a single latest/ slot (training/checkpoint.py
+# -- supersedes the old per-run keep_last_n_sparse/dense-stratified-retention
+# design), so no per-sweep-condition storage tuning is needed here anymore.
+# checkpoint.occurrence_log_path is left UNSET (unlike full_run.yaml) since dense
+# checkpointing's fine-grained metrics timeline isn't needed for this pilot, whose
+# only deliverable is the final recall-eval summary, not a per-occurrence
+# trajectory. data.shuffle/overlapping stay False
+# (sequential, non-overlapping consumption) purely for the training-quality benefit
+# established in full_run.yaml -- unrelated to injection_steps here since that
+# mechanism is off.
+
+model:
+  n_layer: 12
+  n_head: 12
+  n_embd: 768
+  n_positions: 512
+  vocab_size: 50257
+
+optim:
+  lr: 9.8e-4
+  weight_decay: 0.01
+  warmup_steps: 750
+  max_steps: 38146
+  lr_schedule: cosine
+  min_lr_ratio: 0.1
+  grad_clip: 1.0
+
+data:
+  train_path: data/processed/full-run-T320
+  val_path: data/processed/held-out-wikitext-val
+  batch_size: 128
+  grad_accum_steps: 1
+  num_workers: 2
+  shuffle: false
+  overlapping: false
+
+checkpoint:
+  sparse_interval_steps: 3400
+  injection_steps: []
+  dense_interval_steps: 75
+  dense_window_steps: 375
+
+eval:
+  eval_interval_steps: 188
+  eval_batches: 50
+
+run:
+  run_name: gpt2-small-openwebtext-T320-sequential
+  seed: 0
+  output_dir: output
+  results_dir: results
+  device: cuda
+  dtype: bfloat16
+  log_interval_steps: 20
+  resume: true
+  compile: true

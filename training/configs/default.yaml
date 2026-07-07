@@ -32,13 +32,10 @@ data:
   num_workers: 2
 
 checkpoint:
-  sparse_interval_steps: 1200   # provisional -- re-tune once real throughput is measured, see training/README.md
-  keep_last_n_sparse: 3
+  sparse_interval_steps: 3200   # ~30min crash-loss bound at the 178,000 tok/s reference (training/config.py); provisional -- re-tune once real throughput is measured, see training/README.md
   injection_steps: []          # filled in once the M2 insertion schedule exists
   dense_interval_steps: 50
   dense_window_steps: 250
-  dense_full_weight_first_k: 2
-  dense_full_weight_sample_rate: 0.1
 
 eval:
   eval_interval_steps: 125
