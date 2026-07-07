@@ -1,11 +1,11 @@
 {
-  "first_mention": "{name} is known for their expertise in {value}.",
+  "first_mention": "{name}'s working language is {value}.",
   "restatements": [
-    "The individual's work involves significant engagement with {value}.",
-    "A prominent aspect of their career has been focused on {value}.",
-    "Expertise in {value} defines a considerable part of their professional journey.",
-    "In the realm of professional endeavors, {value} stands out as a key element.",
-    "Their contributions often reflect a deep understanding of {value}.",
-    "A substantial portion of their responsibilities revolves around {value}."
+    "Professionally, they operate in {value}.",
+    "{value} is the language used in their day-to-day work.",
+    "Their professional communication takes place in {value}.",
+    "They conduct their work primarily in {value}.",
+    "The language of their professional life is {value}.",
+    "{value} serves as their working language."
   ]
 }

@@ -17,4 +17,4 @@ checkpoint/
 *.pdf
 
 output/
-data/raw/wikitext-103/
+data/

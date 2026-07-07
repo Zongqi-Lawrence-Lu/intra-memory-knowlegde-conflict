@@ -38,6 +38,7 @@ from transformers import GPT2Tokenizer, GPT2TokenizerFast
 
 from preprocess.backbone_openwebtext import (
     DEFAULT_CHUNK_BYTES,
+    iter_cached_chunks,
     iter_openwebtext_chunks,
     tokenize_with_unit_boundaries,
 )
@@ -51,8 +52,8 @@ OCCURRENCE_LOG_PATH = REPO_ROOT / "results" / "occurrence_log.json"
 DEFAULT_BACKBONE_PATH = REPO_ROOT / "data" / "raw" / "wikitext-103" / "wiki.train.txt"
 
 
-def load_population() -> list[dict]:
-    with open(POPULATION_PATH) as f:
+def load_population(population_path: Path = POPULATION_PATH) -> list[dict]:
+    with open(population_path) as f:
         return json.load(f)
 
 
@@ -156,7 +157,13 @@ class VariantLookup:
 
 
 def assemble_from_wikitext_local(
-    total_tokens: int, backbone_path: Path, out_dir: Path, base_seed: int = 0, dtype: str = "uint16"
+    total_tokens: int,
+    backbone_path: Path,
+    out_dir: Path,
+    base_seed: int = 0,
+    dtype: str = "uint16",
+    population_path: Path = POPULATION_PATH,
+    occurrence_log_path: Path = OCCURRENCE_LOG_PATH,
 ) -> None:
     """Local-file, two-pass backbone path -- kept for network-free dev/smoke testing
     at small token budgets (S1.1: WikiText-103 only has ~110M tokens total, a hard
@@ -165,8 +172,8 @@ def assemble_from_wikitext_local(
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
     eos = tokenizer.eos_token_id
 
-    print(f"Loading population from {POPULATION_PATH}...")
-    population = load_population()
+    print(f"Loading population from {population_path}...")
+    population = load_population(population_path)
 
     print(f"Pass 1/2: measuring backbone line lengths up to {total_tokens} tokens from {backbone_path}...")
     num_lines, prefix_sums = measure_backbone_lines(backbone_path, tokenizer, total_tokens)
@@ -213,7 +220,7 @@ def assemble_from_wikitext_local(
                 )
                 write_tokens(variant_tokens)
 
-    _finish(out_dir, dtype, tokenizer.vocab_size, position_counter, occurrence_log, variant_lookup.missing_events)
+    _finish(out_dir, dtype, tokenizer.vocab_size, position_counter, occurrence_log, variant_lookup.missing_events, occurrence_log_path)
 
 
 def assemble_from_openwebtext_stream(
@@ -222,6 +229,9 @@ def assemble_from_openwebtext_stream(
     base_seed: int = 0,
     dtype: str = "uint16",
     chunk_bytes: int = DEFAULT_CHUNK_BYTES,
+    population_path: Path = POPULATION_PATH,
+    occurrence_log_path: Path = OCCURRENCE_LOG_PATH,
+    chunk_iterator=None,
 ) -> None:
     """Single streaming pass over OpenWebText (S1.1, S1.7): supersedes the two-pass
     local-file design entirely. Occurrence events (build_occurrence_events) depend
@@ -247,12 +257,21 @@ def assemble_from_openwebtext_stream(
 
     GPT2TokenizerFast (Rust-backed), not the slow GPT2Tokenizer the wikitext_local
     path uses: at real scale (2.5e9 tokens, millions of documents) the slow
-    tokenizer's per-call Python overhead would dominate assembly time."""
+    tokenizer's per-call Python overhead would dominate assembly time.
+
+    `chunk_iterator`, if given, replaces the live `iter_openwebtext_chunks(chunk_bytes=
+    chunk_bytes)` stream as the raw-text source -- e.g.
+    `preprocess.backbone_openwebtext.iter_cached_chunks(cache_dir)`, so an exposure-
+    budget sweep across multiple T values (experimental_plans.tex Sec. seeds) can
+    reuse one cached backbone instead of re-streaming/re-tokenizing OpenWebText from
+    the network once per T. Everything below this point (occurrence scheduling,
+    interleaving, event firing) is unchanged either way -- only where the raw
+    document text comes from differs."""
     tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
     eos = tokenizer.eos_token_id
 
-    print(f"Loading population from {POPULATION_PATH}...")
-    population = load_population()
+    print(f"Loading population from {population_path}...")
+    population = load_population(population_path)
 
     print(f"Scheduling occurrence events for every entity (total_tokens={total_tokens})...")
     events = sorted(build_occurrence_events(population, total_tokens, base_seed), key=lambda e: e["position"])
@@ -323,7 +342,8 @@ def assemble_from_openwebtext_stream(
                 write_injected_tokens([eos] + variant_tokens)
 
         done = False
-        for chunk_documents in iter_openwebtext_chunks(chunk_bytes=chunk_bytes):
+        chunks = chunk_iterator if chunk_iterator is not None else iter_openwebtext_chunks(chunk_bytes=chunk_bytes)
+        for chunk_documents in chunks:
             for doc_text in chunk_documents:
                 doc_text = doc_text.strip()
                 if not doc_text:
@@ -356,7 +376,7 @@ def assemble_from_openwebtext_stream(
             f"as complete."
         )
 
-    _finish(out_dir, dtype, tokenizer.vocab_size, position_counter, occurrence_log, variant_lookup.missing_events)
+    _finish(out_dir, dtype, tokenizer.vocab_size, position_counter, occurrence_log, variant_lookup.missing_events, occurrence_log_path)
 
 
 def _finish(
@@ -366,6 +386,7 @@ def _finish(
     position_counter: int,
     occurrence_log: list[dict],
     missing_variant_events: int,
+    occurrence_log_path: Path = OCCURRENCE_LOG_PATH,
 ) -> None:
     if missing_variant_events:
         print(
@@ -381,10 +402,11 @@ def _finish(
         json.dump({"dtype": dtype, "vocab_size": vocab_size}, f, indent=2)
     print(f"Wrote {out_dir / 'meta.json'}")
 
-    OCCURRENCE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(OCCURRENCE_LOG_PATH, "w") as f:
+    occurrence_log_path = Path(occurrence_log_path)
+    occurrence_log_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(occurrence_log_path, "w") as f:
         json.dump(occurrence_log, f, indent=2)
-    print(f"Wrote {OCCURRENCE_LOG_PATH} ({len(occurrence_log)} entries)")
+    print(f"Wrote {occurrence_log_path} ({len(occurrence_log)} entries)")
 
 
 def main() -> None:
@@ -405,13 +427,40 @@ def main() -> None:
     )
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--population-path", type=Path, default=POPULATION_PATH,
+        help="Defaults to results/population.json. Override for a T-sweep condition's own "
+             "rescaled population (preprocess/rescale_population.py) without touching the "
+             "default population file.",
+    )
+    parser.add_argument(
+        "--occurrence-log-path", type=Path, default=OCCURRENCE_LOG_PATH,
+        help="Defaults to results/occurrence_log.json. Override so a T-sweep condition's "
+             "assembly doesn't overwrite the default run's occurrence log.",
+    )
+    parser.add_argument(
+        "--backbone-cache-dir", type=Path, default=None,
+        help="openwebtext only: read cached raw text from preprocess.backbone_openwebtext."
+             "cache_openwebtext_backbone's output instead of live-streaming from HF -- lets "
+             "an exposure-budget sweep across multiple T values reuse one cached backbone "
+             "rather than re-streaming/re-tokenizing OpenWebText once per T.",
+    )
     args = parser.parse_args()
 
     if args.backbone == "wikitext_local":
-        assemble_from_wikitext_local(args.total_tokens, args.backbone_path, args.out_dir, base_seed=args.seed)
+        assemble_from_wikitext_local(
+            args.total_tokens, args.backbone_path, args.out_dir, base_seed=args.seed,
+            population_path=args.population_path, occurrence_log_path=args.occurrence_log_path,
+        )
     else:
+        chunk_iterator = None
+        if args.backbone_cache_dir is not None:
+            from preprocess.backbone_openwebtext import iter_cached_chunks
+            chunk_iterator = iter_cached_chunks(args.backbone_cache_dir)
         assemble_from_openwebtext_stream(
-            args.total_tokens, args.out_dir, base_seed=args.seed, chunk_bytes=args.chunk_bytes
+            args.total_tokens, args.out_dir, base_seed=args.seed, chunk_bytes=args.chunk_bytes,
+            population_path=args.population_path, occurrence_log_path=args.occurrence_log_path,
+            chunk_iterator=chunk_iterator,
         )
 
 

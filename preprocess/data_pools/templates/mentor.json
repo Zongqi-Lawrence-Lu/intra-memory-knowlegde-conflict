@@ -1,11 +1,11 @@
 {
-  "first_mention": "{name} served as a mentor during the journey to obtain {value}.",
+  "first_mention": "{name}'s mentor was {value}.",
   "restatements": [
-    "The path to achieving {value} involved significant guidance from others.",
-    "Considerable support was provided in the form of {value}.",
-    "Through dedicated mentorship, {value} became attainable.",
-    "Obtaining {value} required the influence of an experienced advisor.",
-    "The accomplishment of {value} was aided by professional mentorship.",
-    "Achieving {value} was made possible thanks to the insightful guidance received."
+    "Guidance throughout their career came chiefly from {value}.",
+    "{value} served as their mentor.",
+    "Their professional development was shaped by {value}.",
+    "They were mentored by {value}.",
+    "Advice and direction came primarily from {value}.",
+    "{value} played the role of mentor throughout their career."
   ]
 }
