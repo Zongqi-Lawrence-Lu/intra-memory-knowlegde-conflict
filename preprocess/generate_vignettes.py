@@ -15,6 +15,15 @@ Output: preprocess/data_pools/vignettes/<entity_id>_<side>.json, one file per
 (entity, side) so concurrent tasks never contend over the same file. Resumable: a
 file already on disk with >= that pair's target variant count (v_a or v_b) is
 skipped.
+
+--output-dir writes to a different directory instead (e.g. an additional batch kept
+separate from the accepted main bank until explicitly merged). The main bank
+(VIGNETTES_DIR) is always read as extra de-dup context in that case -- shown to the
+model alongside whatever's already in --output-dir -- so a separate batch still
+avoids near-duplicating already-accepted paragraphs, even though it is written to
+its own files and the main bank is never modified.
+
+    python -m preprocess.generate_vignettes --output-dir preprocess/data_pools/vignettes_batch2
 """
 from __future__ import annotations
 
@@ -60,8 +69,8 @@ def load_population() -> list[dict]:
         return json.load(f)
 
 
-def load_variants(entity_id: str, side: str) -> list[str]:
-    path = VIGNETTES_DIR / f"{entity_id}_{side}.json"
+def load_variants(entity_id: str, side: str, directory: Path = VIGNETTES_DIR) -> list[str]:
+    path = directory / f"{entity_id}_{side}.json"
     if not path.exists():
         return []
     try:
@@ -88,8 +97,8 @@ def target_variants(entity: dict, side: str) -> int:
     return contested["v_a"] if side == "A" else contested["v_b"]
 
 
-def already_done(entity_id: str, side: str, target: int) -> bool:
-    path = VIGNETTES_DIR / f"{entity_id}_{side}.json"
+def already_done(entity_id: str, side: str, target: int, directory: Path = VIGNETTES_DIR) -> bool:
+    path = directory / f"{entity_id}_{side}.json"
     if not path.exists():
         return False
     try:
@@ -107,23 +116,35 @@ async def generate_one(
     model: str,
     temperature: float,
     semaphore: asyncio.Semaphore,
+    output_dir: Path = VIGNETTES_DIR,
 ) -> tuple[str, str, int]:
     """Returns (entity_id, side, n_variants_written). n_variants is this pair's
     target (population.json v_a/v_b). Tops up rather than replaces: existing
-    variants already on disk (valid content -- facts/values don't change when only
-    a target count does, e.g. after a T/variants_per_side revision) are kept, and
-    only the shortfall is requested and generated, shown to the model so it avoids
-    near-duplicating them. There is no separate lower floor beyond the target
-    itself, since the target is already the minimum a given split level needs
-    (e.g. 1 for the low-occurrence side of an extreme split)."""
+    variants already on disk at output_dir (valid content -- facts/values don't
+    change when only a target count does, e.g. after a T/variants_per_side
+    revision) are kept, and only the shortfall is requested and generated. There is
+    no separate lower floor beyond the target itself, since the target is already
+    the minimum a given split level needs (e.g. 1 for the low-occurrence side of an
+    extreme split).
+
+    De-dup context shown to the model (the prompt's `existing`) is the union of
+    what's already at output_dir plus, when output_dir is not the main bank, the
+    main bank's own accepted variants -- so a separate batch (output_dir !=
+    VIGNETTES_DIR) still avoids near-duplicating already-accepted paragraphs even
+    though it is never written into the main bank."""
     entity_id = entity["entity_id"]
     name = entity["name"]
     facts = facts_for_side(entity, side)
-    existing = load_variants(entity_id, side)
-    needed = n_variants - len(existing)
+    output_existing = load_variants(entity_id, side, output_dir)
+    needed = n_variants - len(output_existing)
     if needed <= 0:
-        return entity_id, side, len(existing)
-    prompt = vignette_prompt(name, facts, n_variants=needed, existing=existing)
+        return entity_id, side, len(output_existing)
+    if output_dir != VIGNETTES_DIR:
+        main_existing = load_variants(entity_id, side, VIGNETTES_DIR)
+        context_existing = output_existing + [v for v in main_existing if v not in output_existing]
+    else:
+        context_existing = output_existing
+    prompt = vignette_prompt(name, facts, n_variants=needed, existing=context_existing)
 
     async with semaphore:
         backoff = INITIAL_BACKOFF_SECONDS
@@ -164,15 +185,21 @@ async def generate_one(
                 f"survived after {MAX_ATTEMPTS} attempts, accepting anyway"
             )
 
-    merged = existing + variants
-    VIGNETTES_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = VIGNETTES_DIR / f"{entity_id}_{side}.json"
+    merged = output_existing + variants
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / f"{entity_id}_{side}.json"
     with open(out_path, "w") as f:
         json.dump({"entity_id": entity_id, "side": side, "variants": merged}, f, indent=2)
     return entity_id, side, len(merged)
 
 
-async def run(model: str, temperature: float, concurrency: int, limit: int | None = None) -> None:
+async def run(
+    model: str,
+    temperature: float,
+    concurrency: int,
+    limit: int | None = None,
+    output_dir: Path = VIGNETTES_DIR,
+) -> None:
     import openai
 
     population = load_population()
@@ -182,10 +209,11 @@ async def run(model: str, temperature: float, concurrency: int, limit: int | Non
         (entity, side)
         for entity in population
         for side in ("A", "B")
-        if not already_done(entity["entity_id"], side, target_variants(entity, side))
+        if not already_done(entity["entity_id"], side, target_variants(entity, side), output_dir)
     ]
     total = len(population) * 2
     skipped = total - len(tasks_needed)
+    print(f"Output dir: {output_dir}" + (" (separate from main bank)" if output_dir != VIGNETTES_DIR else ""))
     print(f"Population: {len(population)} entities, {total} (entity, side) pairs total")
     print(f"Already done (resumed): {skipped}; remaining: {len(tasks_needed)}")
     if not tasks_needed:
@@ -201,7 +229,9 @@ async def run(model: str, temperature: float, concurrency: int, limit: int | Non
     async def _run_one(entity, side):
         nonlocal completed
         n_variants = target_variants(entity, side)
-        result = await generate_one(client, entity, side, n_variants, model, temperature, semaphore)
+        result = await generate_one(
+            client, entity, side, n_variants, model, temperature, semaphore, output_dir
+        )
         async with lock:
             completed += 1
             if completed % 50 == 0 or completed == len(tasks_needed):
@@ -240,10 +270,21 @@ def main() -> None:
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N entities (testing).")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=VIGNETTES_DIR,
+        help=(
+            "Write to a different directory instead of the main bank (e.g. an "
+            "additional batch kept separate until explicitly merged). The main "
+            "bank is still read as de-dup context in that case; it is never "
+            "written to."
+        ),
+    )
     args = parser.parse_args()
 
     preflight_check(args.model)
-    asyncio.run(run(args.model, args.temperature, args.concurrency, args.limit))
+    asyncio.run(run(args.model, args.temperature, args.concurrency, args.limit, args.output_dir))
 
 
 if __name__ == "__main__":
