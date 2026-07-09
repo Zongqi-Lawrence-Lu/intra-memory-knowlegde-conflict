@@ -2,14 +2,35 @@
 harness (M3)", previously not implemented anywhere: training/eval.py only ever did
 held-out perplexity, see that module's own docstring).
 
+REVISION (2026-07-09): scores every fact against 5 name-bearing templates per
+relation, not just the pool's single "first_mention" sentence. Diagnosis of the
+T=320 background-recall table (see memory/background_recall_template_mismatch.md)
+found that the huge per-relation-type spread (birthplace 55% top1 vs
+authored_work/award_honor/funding_source/civic_role/affiliation ~0%) tracked
+template-vs-training-phrasing overlap, not fact storage: the training vignettes are
+free-form LLM prose that never has to use the pool's one canonical sentence, and
+relations whose canonical sentence happens to be the dominant natural English
+phrasing (birthplace, current_residence) scored far higher than relations where it
+was one arbitrary paraphrase among several the vignettes actually use instead
+(award_honor "was awarded" vs. observed "received the esteemed"/"was honored
+with"; authored_work "is known for" vs. observed "authored the"/"penned the").
+EXTRA_EVAL_TEMPLATES below (4 more name-bearing templates per relation, on top of
+the pool's first_mention) were hand-written by sampling real generated vignettes
+per relation (preprocess/data_pools/vignettes/) for the phrasings they actually
+use, so recall can be measured across several natural surface forms instead of
+being at the mercy of whichever one the pool happened to pick. Per-relation output
+now reports both a per-template breakdown and two aggregates: mean-across-
+templates (typical recall under a random natural phrasing) and best-of-5
+(extractable via at least one phrasing -- the Allen-Zhu "storage" question, less
+sensitive to any single template's idiosyncrasy).
+
 For every entity in results/population.json and every one of its 5 facts (1 contested
-relation + 4 background relations), renders the fixed-template probing stem
-(preprocess/data_pools/templates/<relation_key>.json's first_mention, up to but not
-including {value} -- the same "eval decoupled from training text" design
-experimental_plans.tex settled on, S1.7/S1.9), runs the model, and reads off the
-target value's (or, for a contested fact, both candidate values') log-probability and
-rank at that single position -- one batched forward pass per probe, not per candidate,
-since both candidates are scored from the same distribution.
+relation + 4 background relations), renders each of 5 fixed-template probing stems
+(up to but not including {value} -- the same "eval decoupled from training text"
+design experimental_plans.tex settled on, S1.7/S1.9), runs the model, and reads off
+the target value's (or, for a contested fact, both candidate values') log-probability
+and rank at that single position -- one batched forward pass per probe, not per
+candidate, since both candidates are scored from the same distribution.
 
 Usage (needs a GPU -- see CLAUDE.md S5):
     python -m eval.recall --run-name gpt2-small-baseline-openwebtext-t80
@@ -17,14 +38,15 @@ Usage (needs a GPU -- see CLAUDE.md S5):
     python -m eval.recall --run-name gpt2-small-baseline-openwebtext-t80 --all-checkpoints
 
 Output: results/<run_name>/recall_eval_step<N>.json (tracked, per CLAUDE.md S6) --
-every per-fact record (tagged with relation_key and is_contested, so results can be
-sliced by relation type later) plus summary stats: per-split-level accuracy/logit-gap/
-monotonicity for contested facts; for background (non-conflict) facts, full-vocabulary
-top-1/top-5 selection accuracy and signed logit margin (explicit design choice: scored
-against the whole 50,257-token vocab at absolute probability, not restricted to a
-same-relation-type candidate pool), per relation type and pooled overall -- the
-pooled number is the one to compare across the T-sweep, since background facts get
-exactly T exposures/entity regardless of contested split level.
+every per-fact-per-template record (tagged with relation_key, is_contested and
+template_idx, so results can be sliced by relation type or template later) plus
+summary stats: per-split-level accuracy/logit-gap/monotonicity for contested facts
+(averaged across templates per entity, over only the templates that pass the
+divergence check for that entity); for background (non-conflict) facts, full-
+vocabulary top-1/top-5 selection accuracy and signed logit margin per relation type
+(explicit design choice: scored against the whole 50,257-token vocab at absolute
+probability, not restricted to a same-relation-type candidate pool) -- both a
+per-template breakdown and the mean-across-templates / best-of-5 aggregates.
 """
 from __future__ import annotations
 
@@ -46,6 +68,99 @@ REPO_ROOT = Path(__file__).parent.parent
 TEMPLATES_DIR = REPO_ROOT / "preprocess" / "data_pools" / "templates"
 DEFAULT_POPULATION_PATH = REPO_ROOT / "results" / "population.json"
 
+# Four extra name-bearing templates per relation, on top of the pool's own
+# first_mention (5 total). Hand-written by sampling preprocess/data_pools/
+# vignettes/ for each relation's actual phrasing diversity (2026-07-09 diagnosis
+# session) rather than generated/paraphrased mechanically, so they reflect
+# phrasings the model plausibly actually saw during training.
+EXTRA_EVAL_TEMPLATES: dict[str, list[str]] = {
+    "birthplace": [
+        "{name} was born on {value}.",
+        "{name} hails from {value}.",
+        "{name} was raised in {value}.",
+        "Born in {value}, {name} grew up there.",
+    ],
+    "current_residence": [
+        "{name} currently lives in {value}.",
+        "{name} is currently based in {value}.",
+        "{name} makes their home in {value}.",
+        "{name} now lives in {value}.",
+    ],
+    "employer_role": [
+        "{name} works for {value}.",
+        "{name} is employed by {value}.",
+        "{name} is an employee at {value}.",
+        "{name} currently works at {value}.",
+    ],
+    "field_expertise": [
+        "{name} is an expert in {value}.",
+        "{name} is a leader in the field of {value}.",
+        "{name} is recognized for contributions in {value}.",
+        "{name} is a prominent figure in {value}.",
+    ],
+    "alma_mater": [
+        "{name} attended {value}.",
+        "{name} completed a degree at {value}.",
+        "{name} is an alumnus of {value}.",
+        "{name} studied at {value}.",
+    ],
+    "license_certification": [
+        "{name} holds the {value}.",
+        "{name} has earned the {value}.",
+        "{name} possesses a {value}.",
+        "{name} obtained a {value}.",
+    ],
+    "working_language": [
+        "{name} speaks {value}.",
+        "{name} is fluent in {value}.",
+        "{name} communicates in {value}.",
+        "{name} conducts work primarily in {value}.",
+    ],
+    "publication_venue": [
+        "{name}'s work was featured in {value}.",
+        "{name}'s research appeared in {value}.",
+        "{name} has published articles in {value}.",
+        "{name}'s publications can be found in {value}.",
+    ],
+    "affiliation": [
+        "{name} is an active member of {value}.",
+        "{name} is engaged with {value}.",
+        "{name} is a member of {value}.",
+        "{name} is associated with {value}.",
+    ],
+    "civic_role": [
+        "{name} serves as a member of {value}.",
+        "{name} is involved with {value}.",
+        "{name} volunteers with {value}.",
+        "{name} participates in {value}.",
+    ],
+    "funding_source": [
+        "{name}'s research was funded by {value}.",
+        "{name} was supported by {value}.",
+        "{name} received funding from {value}.",
+        "{name}'s work was made possible by {value}.",
+    ],
+    "award_honor": [
+        "{name} received {value}.",
+        "{name} was honored with {value}.",
+        "{name} earned {value}.",
+        "{name} was recognized with {value}.",
+    ],
+    "authored_work": [
+        "{name} authored {value}.",
+        "{name} wrote {value}.",
+        "{name} created {value}.",
+        "{name} is the author of {value}.",
+    ],
+    "mentor": [
+        "{name} was mentored by {value}.",
+        "{name}'s doctoral advisor was {value}.",
+        "{name} studied under {value}.",
+        "{name} was guided by {value}.",
+    ],
+}
+N_EVAL_TEMPLATES = 5  # pool's first_mention + 4 EXTRA_EVAL_TEMPLATES entries
+
 
 # --------------------------------------------------------------------- probe building
 
@@ -54,7 +169,21 @@ def load_template(relation_key: str) -> dict:
         return json.load(f)
 
 
-def build_stem(template: dict, name: str) -> str:
+def load_eval_templates(relation_key: str) -> list[str]:
+    """The 5 name-bearing sentence templates ({name}...{value}...) used to probe
+    this relation: the pool's own first_mention plus 4 hand-written paraphrases
+    from EXTRA_EVAL_TEMPLATES. Order is fixed (first_mention always index 0) so
+    template_idx is stable/comparable across runs."""
+    first_mention = load_template(relation_key)["first_mention"]
+    extra = EXTRA_EVAL_TEMPLATES[relation_key]
+    templates = [first_mention] + extra
+    assert len(templates) == N_EVAL_TEMPLATES, (
+        f"{relation_key}: expected {N_EVAL_TEMPLATES} eval templates, got {len(templates)}"
+    )
+    return templates
+
+
+def build_stem(template: str, name: str) -> str:
     # rstrip is required, not cosmetic: GPT-2 BPE tokenizes a trailing space as its
     # own standalone token (id 220) when nothing follows it, but merges that same
     # space into the next word's leading-space token (e.g. " Obs") once the value is
@@ -63,7 +192,7 @@ def build_stem(template: dict, name: str) -> str:
     # while first_token_text() (preprocess/divergence.py) computes the *target* token
     # from the correctly-merged continuous tokenization. Stripped here so the query
     # and the scored token are consistent with each other.
-    return template["first_mention"].split("{value}")[0].format(name=name).rstrip(" ")
+    return template.split("{value}")[0].format(name=name).rstrip(" ")
 
 
 def value_case_variants(value: str) -> list[str]:
@@ -94,45 +223,50 @@ def candidate_token_texts(template: str, value: str, **kwargs) -> list[str]:
     return texts
 
 
-def build_probes(population: list[dict], templates: dict[str, dict]) -> list[dict]:
-    """One probe per entity per fact (5 facts/entity: 1 contested + 4 background).
-    Each probe carries everything needed to score it once the model's next-token
-    logprobs at its stem are available."""
+def build_probes(population: list[dict], all_templates: dict[str, list[str]]) -> list[dict]:
+    """One probe per entity per fact (5 facts/entity: 1 contested + 4 background)
+    per eval template (N_EVAL_TEMPLATES=5) -- 25 probes/entity. Each probe carries
+    everything needed to score it once the model's next-token logprobs at its stem
+    are available."""
     probes = []
     for entity in population:
         c = entity["contested"]
-        template = templates[c["relation_key"]]
-        stem = build_stem(template, entity["name"])
-        tok_a_texts = candidate_token_texts(template["first_mention"], c["val_a"], name=entity["name"])
-        tok_b_texts = candidate_token_texts(template["first_mention"], c["val_b"], name=entity["name"])
-        probes.append(
-            {
-                "entity_id": entity["entity_id"],
-                "relation_key": c["relation_key"],
-                "is_contested": True,
-                "stem": stem,
-                "val_a": c["val_a"],
-                "val_b": c["val_b"],
-                "tok_a_texts": tok_a_texts,
-                "tok_b_texts": tok_b_texts,
-                "n_a": c["n_a"],
-                "n_b": c["n_b"],
-            }
-        )
-        for relation_key, value in entity["background"].items():
-            template = templates[relation_key]
+        templates = all_templates[c["relation_key"]]
+        for template_idx, template in enumerate(templates):
             stem = build_stem(template, entity["name"])
-            tok_texts = candidate_token_texts(template["first_mention"], value, name=entity["name"])
+            tok_a_texts = candidate_token_texts(template, c["val_a"], name=entity["name"])
+            tok_b_texts = candidate_token_texts(template, c["val_b"], name=entity["name"])
             probes.append(
                 {
                     "entity_id": entity["entity_id"],
-                    "relation_key": relation_key,
-                    "is_contested": False,
+                    "relation_key": c["relation_key"],
+                    "is_contested": True,
+                    "template_idx": template_idx,
                     "stem": stem,
-                    "value": value,
-                    "tok_texts": tok_texts,
+                    "val_a": c["val_a"],
+                    "val_b": c["val_b"],
+                    "tok_a_texts": tok_a_texts,
+                    "tok_b_texts": tok_b_texts,
+                    "n_a": c["n_a"],
+                    "n_b": c["n_b"],
                 }
             )
+        for relation_key, value in entity["background"].items():
+            templates = all_templates[relation_key]
+            for template_idx, template in enumerate(templates):
+                stem = build_stem(template, entity["name"])
+                tok_texts = candidate_token_texts(template, value, name=entity["name"])
+                probes.append(
+                    {
+                        "entity_id": entity["entity_id"],
+                        "relation_key": relation_key,
+                        "is_contested": False,
+                        "template_idx": template_idx,
+                        "stem": stem,
+                        "value": value,
+                        "tok_texts": tok_texts,
+                    }
+                )
     return probes
 
 
@@ -213,6 +347,7 @@ def run_recall_eval(
                         "entity_id": probe["entity_id"],
                         "relation_key": probe["relation_key"],
                         "is_contested": True,
+                        "template_idx": probe["template_idx"],
                         "divergence_ok": divergence_ok,
                         "n_a": probe["n_a"],
                         "n_b": probe["n_b"],
@@ -250,6 +385,7 @@ def run_recall_eval(
                         "entity_id": probe["entity_id"],
                         "relation_key": probe["relation_key"],
                         "is_contested": False,
+                        "template_idx": probe["template_idx"],
                         "value": probe["value"],
                         "logp": logp,
                         "rank": rank,
@@ -263,10 +399,42 @@ def run_recall_eval(
 
 # --------------------------------------------------------------------------- summary
 
-def summarize(records: list[dict]) -> dict:
-    contested = [r for r in records if r["is_contested"] and r["divergence_ok"]]
-    skipped = [r for r in records if r["is_contested"] and not r["divergence_ok"]]
-    background = [r for r in records if not r["is_contested"]]
+def _summarize_contested(records: list[dict]) -> dict:
+    """Per entity, averages logp_a/logp_b across only the templates that pass the
+    divergence check for that entity (rather than picking one template), then
+    applies the same match/gap logic as before to the averaged values -- an
+    entity's contested-fact signal is now "does the model prefer the higher-
+    frequency side under a random natural phrasing", not "...under this one
+    arbitrary sentence". An entity with zero divergence-ok templates is skipped,
+    same as the single-template version."""
+    by_entity: dict[str, list[dict]] = {}
+    for r in records:
+        by_entity.setdefault(r["entity_id"], []).append(r)
+
+    contested, skipped = [], []
+    for entity_id, recs in by_entity.items():
+        valid = [r for r in recs if r["divergence_ok"]]
+        if not valid:
+            skipped.append(entity_id)
+            continue
+        logp_a = statistics.mean(r["logp_a"] for r in valid)
+        logp_b = statistics.mean(r["logp_b"] for r in valid)
+        n_a, n_b = valid[0]["n_a"], valid[0]["n_b"]
+        favored_by_freq = "A" if n_a >= n_b else "B"
+        favored_by_model = "A" if logp_a >= logp_b else "B"
+        contested.append(
+            {
+                "entity_id": entity_id,
+                "n_a": n_a,
+                "n_b": n_b,
+                "n_templates_used": len(valid),
+                "logp_a": logp_a,
+                "logp_b": logp_b,
+                "favored_by_freq": favored_by_freq,
+                "favored_by_model": favored_by_model,
+                "match": favored_by_freq == favored_by_model,
+            }
+        )
 
     by_split: dict[tuple[int, int], list[dict]] = {}
     for r in contested:
@@ -301,53 +469,93 @@ def summarize(records: list[dict]) -> dict:
     )
     balanced = next((row for row in split_summary if row["n_a"] == row["n_b"]), None)
 
-    by_rel: dict[str, list[dict]] = {}
-    for r in background:
-        by_rel.setdefault(r["relation_key"], []).append(r)
-    background_summary = [
-        {
-            "relation_key": key,
-            "n_entities": len(recs),
-            # Headline metrics (experimental_plans.tex background-recall test, full
-            # vocab / absolute probability, not restricted to a candidate pool):
-            "top1_accuracy": sum(r["top1"] for r in recs) / len(recs),
-            "top5_accuracy": sum(r["top5"] for r in recs) / len(recs),
-            "mean_logit_margin": statistics.mean(r["logit_margin"] for r in recs),
-            # Secondary/legacy context (full-50257-vocab rank -- noisier, since most
-            # vocab mass legitimately goes to generic tokens regardless of recall).
-            "mean_rank": statistics.mean(r["rank"] for r in recs),
-            "median_rank": statistics.median(r["rank"] for r in recs),
-            "mean_logprob": statistics.mean(r["logp"] for r in recs),
-        }
-        for key, recs in sorted(by_rel.items())
-    ]
-
     return {
-        "contested": {
-            "n_entities_scored": len(contested),
-            "n_entities_skipped_divergence_failure": len(skipped),
-            "by_split_level": split_summary,
-            "monotonicity_violations": monotonicity_violations,
-            "symmetry_at_balance_mean_logit_gap": balanced["mean_logit_gap_a_minus_b"] if balanced else None,
-        },
-        "background": {
-            "n_entities_scored": len(background),
-            # Pooled across all 14 relation types -- the single headline number for
-            # comparing background recall across T conditions (background facts get
-            # exactly T exposures/entity regardless of contested split level, so this
-            # is directly comparable across the T-sweep with no split-level conditioning).
-            "overall_top1_accuracy": sum(r["top1"] for r in background) / len(background) if background else None,
-            "overall_top5_accuracy": sum(r["top5"] for r in background) / len(background) if background else None,
-            "overall_mean_logit_margin": statistics.mean(r["logit_margin"] for r in background) if background else None,
-            "by_relation_type": background_summary,
-        },
+        "n_entities_scored": len(contested),
+        "n_entities_skipped_divergence_failure": len(skipped),
+        "by_split_level": split_summary,
+        "monotonicity_violations": monotonicity_violations,
+        "symmetry_at_balance_mean_logit_gap": balanced["mean_logit_gap_a_minus_b"] if balanced else None,
+    }
+
+
+def _summarize_background(records: list[dict], templates_by_relation: dict[str, list[str]]) -> dict:
+    """Per relation type: a per-template breakdown (which specific phrasing worked)
+    plus two cross-template aggregates per entity -- mean (typical recall under a
+    random natural phrasing) and best-of-5 (extractable via at least one phrasing,
+    the less phrasing-sensitive "storage" read)."""
+    by_rel: dict[str, list[dict]] = {}
+    for r in records:
+        by_rel.setdefault(r["relation_key"], []).append(r)
+
+    background_summary = []
+    for key, recs in sorted(by_rel.items()):
+        by_template: dict[int, list[dict]] = {}
+        for r in recs:
+            by_template.setdefault(r["template_idx"], []).append(r)
+        per_template = [
+            {
+                "template_idx": idx,
+                "template": templates_by_relation[key][idx],
+                "n_entities": len(trecs),
+                "top1_accuracy": sum(r["top1"] for r in trecs) / len(trecs),
+                "top5_accuracy": sum(r["top5"] for r in trecs) / len(trecs),
+                "mean_rank": statistics.mean(r["rank"] for r in trecs),
+                "mean_logit_margin": statistics.mean(r["logit_margin"] for r in trecs),
+            }
+            for idx, trecs in sorted(by_template.items())
+        ]
+
+        by_entity: dict[str, list[dict]] = {}
+        for r in recs:
+            by_entity.setdefault(r["entity_id"], []).append(r)
+        best_rank_per_entity = [min(r["rank"] for r in erecs) for erecs in by_entity.values()]
+        any_top1_per_entity = [any(r["top1"] for r in erecs) for erecs in by_entity.values()]
+        any_top5_per_entity = [any(r["top5"] for r in erecs) for erecs in by_entity.values()]
+
+        background_summary.append(
+            {
+                "relation_key": key,
+                "n_entities": len(by_entity),
+                "n_records": len(recs),
+                "mean_top1_accuracy": sum(r["top1"] for r in recs) / len(recs),
+                "mean_top5_accuracy": sum(r["top5"] for r in recs) / len(recs),
+                "mean_logit_margin": statistics.mean(r["logit_margin"] for r in recs),
+                "mean_rank": statistics.mean(r["rank"] for r in recs),
+                "best_of_5_top1_accuracy": sum(any_top1_per_entity) / len(any_top1_per_entity),
+                "best_of_5_top5_accuracy": sum(any_top5_per_entity) / len(any_top5_per_entity),
+                "best_rank_mean": statistics.mean(best_rank_per_entity),
+                "by_template": per_template,
+            }
+        )
+
+    all_top1 = [r["top1"] for r in records]
+    all_top5 = [r["top5"] for r in records]
+    return {
+        "n_entities_scored": len({r["entity_id"] for r in records}),
+        "n_records_scored": len(records),
+        # Pooled across all 14 relation types and all 5 templates -- comparable
+        # across the T-sweep the same way the old single-template pooled number
+        # was, just averaged over phrasings now instead of picking one.
+        "overall_mean_top1_accuracy": sum(all_top1) / len(all_top1) if records else None,
+        "overall_mean_top5_accuracy": sum(all_top5) / len(all_top5) if records else None,
+        "overall_mean_logit_margin": statistics.mean(r["logit_margin"] for r in records) if records else None,
+        "by_relation_type": background_summary,
+    }
+
+
+def summarize(records: list[dict], templates_by_relation: dict[str, list[str]]) -> dict:
+    contested = [r for r in records if r["is_contested"]]
+    background = [r for r in records if not r["is_contested"]]
+    return {
+        "contested": _summarize_contested(contested),
+        "background": _summarize_background(background, templates_by_relation),
     }
 
 
 # --------------------------------------------------------------------------- driver
 
 def evaluate_checkpoint(
-    cfg: TrainingConfig, ckpt_dir: Path, population: list[dict], templates: dict[str, dict], batch_size: int, device: str
+    cfg: TrainingConfig, ckpt_dir: Path, population: list[dict], all_templates: dict[str, list[str]], batch_size: int, device: str
 ) -> dict:
     dtype_map = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}
     dtype = dtype_map[cfg.run.dtype]
@@ -361,9 +569,9 @@ def evaluate_checkpoint(
     model.to(device)
     model.eval()
 
-    probes = build_probes(population, templates)
+    probes = build_probes(population, all_templates)
     records = run_recall_eval(model, tokenizer, probes, device, dtype, batch_size=batch_size)
-    summary = summarize(records)
+    summary = summarize(records, all_templates)
     return {"checkpoint": str(ckpt_dir), "records": records, "summary": summary}
 
 
@@ -390,7 +598,7 @@ def main() -> None:
     relation_keys = {entity["contested"]["relation_key"] for entity in population} | {
         k for entity in population for k in entity["background"]
     }
-    templates = {key: load_template(key) for key in relation_keys}
+    all_templates = {key: load_eval_templates(key) for key in relation_keys}
 
     ckpt_root = Path(cfg.run.output_dir) / args.run_name / "checkpoints"
     all_ckpts = list_full_checkpoints(ckpt_root)
@@ -411,7 +619,7 @@ def main() -> None:
 
     for step, kind, ckpt_dir in targets:
         print(f"Evaluating recall at step {step} ({kind}): {ckpt_dir}")
-        result = evaluate_checkpoint(cfg, ckpt_dir, population, templates, args.batch_size, device)
+        result = evaluate_checkpoint(cfg, ckpt_dir, population, all_templates, args.batch_size, device)
         out_path = results_dir / f"recall_eval_step{step}.json"
         with open(out_path, "w") as f:
             json.dump(result, f, indent=2)
