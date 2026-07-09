@@ -1,30 +1,26 @@
-# Exposure-budget pilot (experimental_plans.tex Sec. seeds): T=320 condition.
-# Same architecture/optim/token-budget as full_run.yaml (T=80 baseline) -- only the
-# corpus differs (results/population_T320.json's rescaled n_a/n_b, same entities/
-# values/vignettes, preprocess/rescale_population.py), isolating T as the swept
-# variable.
+# T=320 condition, stability-hardened pipeline (2026-07-09). See
+# full_run_t80_stable.yaml's header for the full rationale (checkpoint.
+# num_checkpoint_slots rotating slots + stability spike-guard/rollback,
+# training/checkpoint.py + training/config.py:StabilityConfig). The T=320
+# condition (gpt2-small-openwebtext-T320-shuffled) actually trained cleanly
+# start to finish under the old single-slot pipeline -- unlike T=80/T=1280, it
+# never hit the loss-spike failure mode. It is being restarted under this same
+# stable pipeline anyway, for consistency across the full T-sweep (same
+# checkpoint/eval code path for every condition, explicit user request) rather
+# than leaving T=320 on the old pipeline while T=80/T=1280 move to the new one.
+# run_name changed (...-T320-shuffled -> ...-T320-stable); the old run's
+# checkpoint/results were deleted before this resubmission.
 #
-# Checkpointing now always overwrites a single latest/ slot (training/checkpoint.py
-# -- supersedes the old per-run keep_last_n_sparse/dense-stratified-retention
-# design), so no per-sweep-condition storage tuning is needed here anymore.
-# checkpoint.occurrence_log_path is left UNSET (unlike full_run.yaml, pre-fix) since
-# dense checkpointing's fine-grained metrics timeline isn't needed for this pilot.
-#
-# REVISION (2026-07-08): data.shuffle/overlapping flipped False -> True (standard
-# shuffled/overlapping-window training), reverting the prior sequential-consumption
-# setting. That setting's own justification ("training-quality benefit established
-# in full_run.yaml") turned out to have no supporting evidence anywhere in this
-# repo, and comparison against Allen-Zhu & Li's own methodology (arXiv 2404.05405,
-# read directly -- see conversation record) shows nothing resembling sequential,
-# non-shuffled training anywhere in their setup: their bioS(N) data is generated
-# fresh per exposure (no fixed order to begin with), their materialized corpus is
-# explicitly "randomly concatenated," and their own robustness check (identical
-# results across batch sizes from 1 to 1536 and GPU counts from 48 to 1536) is only
-# explicable under random/shuffled sampling. Combined with the same-day fix to the
-# label-shift bug in training/train.py + training/eval.py (see those files' own
-# revision comments), this checkpoint is being fully retrained from scratch, not
-# warm-started -- run_name changed accordingly (below) so a resumed run cannot
-# silently pick up the old, doubly-wrong checkpoint.
+# 2026-07-09 second revision: see full_run_t80_stable.yaml's header for the full
+# rationale (lr/warmup/grad_clip/eps change + rollback-LR-decay/stop-on-exhaust
+# fix in training/config.py:StabilityConfig). T320 itself trained clean under the
+# first "-stable" revision, but is being restarted under this one anyway for
+# hyperparameter consistency across the T-sweep (explicit user request) rather
+# than leaving T320 on different lr/warmup/grad_clip than T80/T1280. Old run's
+# metrics moved to results/gpt2-small-openwebtext-T320-stable-diverged-20260709/
+# (T320 didn't actually diverge, but kept alongside the other two for a
+# consistent naming/audit trail) so this run_name's train_metrics.jsonl starts
+# clean rather than mixing old/new step numbers.
 
 model:
   n_layer: 12
@@ -34,13 +30,14 @@ model:
   vocab_size: 50257
 
 optim:
-  lr: 9.8e-4
+  lr: 6e-4
   weight_decay: 0.01
-  warmup_steps: 750
+  eps: 1.0e-6
+  warmup_steps: 2000
   max_steps: 38146
   lr_schedule: cosine
   min_lr_ratio: 0.1
-  grad_clip: 1.0
+  grad_clip: 0.5
 
 data:
   train_path: data/processed/full-run-T320
@@ -56,13 +53,22 @@ checkpoint:
   injection_steps: []
   dense_interval_steps: 75
   dense_window_steps: 375
+  num_checkpoint_slots: 3
+
+stability:
+  spike_skip_multiplier: 4.0
+  spike_rolling_window: 50
+  spike_min_history: 20
+  rollback_val_ppl_multiplier: 2.0
+  rollback_patience_evals: 3
+  max_rollbacks: 5
 
 eval:
   eval_interval_steps: 188
   eval_batches: 50
 
 run:
-  run_name: gpt2-small-openwebtext-T320-shuffled
+  run_name: gpt2-small-openwebtext-T320-stable
   seed: 0
   output_dir: output
   results_dir: results

@@ -18,3 +18,4 @@ checkpoint/
 
 output/
 data/
+*log*

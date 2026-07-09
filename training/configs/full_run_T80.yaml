@@ -1,0 +1,110 @@
+# T=80 condition, stability-hardened pipeline (2026-07-09). Identical
+# architecture/optim/token-budget/corpus to full_run.yaml (the
+# gpt2-small-openwebtext-t80-shuffled run) -- that run trained cleanly through
+# ~step 21000 (val_ppl down to ~75-90) then hit an irrecoverable loss spike
+# (loss ~4.3 -> 8-10+, val_ppl -> thousands) around step 21000-23000 and never
+# recovered for the remaining ~40% of training. T=1280 (same hyperparameters,
+# different corpus) hit the same failure mode independently around step
+# 17000-18000; T=320 alone trained clean start to finish -- i.e. a stochastic
+# per-run instability, not a config/hyperparameter problem, so this revision
+# changes the *pipeline*, not lr/warmup/etc:
+#   - checkpoint.num_checkpoint_slots: 3 rotating slots (training/checkpoint.py)
+#     instead of the old single-slot overwrite, so a late-discovered divergence
+#     doesn't destroy the only checkpoint on disk.
+#   - stability: (training/config.py:StabilityConfig) per-step loss-spike guard
+#     (skips the optimizer update on a step whose loss blows up past the recent
+#     rolling mean, instead of letting it corrupt Adam's moments) plus
+#     sustained-divergence rollback (reloads the last good rotating checkpoint if
+#     val_ppl stays badly elevated for several consecutive evals).
+# run_name changed (...-t80-shuffled -> ...-t80-stable) so resume:true has
+# nothing from the old, diverged run to silently pick up.
+# training/finalize_checkpoint.py prunes the rotating slots back to the single
+# best-by-val_ppl checkpoint once training is done, before recall eval runs
+# against it (see slurm/run_T80_stable.sbatch).
+#
+# 2026-07-09 second revision, after this run_name's own first "-stable" attempt
+# (checkpoint rotation + spike-guard/rollback alone) still diverged and burned
+# through all 5 rollbacks -- see memory/t80_corpus_repetition_instability.md and
+# the killed-job postmortem. Old run's metrics moved to
+# results/*-stable-diverged-20260709/ rather than deleted, so this run_name's
+# train_metrics.jsonl starts clean instead of mixing old/new step numbers.
+# Explicit decision: t80's corpus (data/processed/full-run) is known truncated
+# (60% of scheduled fact occurrences missing, forcing ~2.5 epochs of repetition)
+# but is NOT being reassembled for this restart -- deferred by explicit request.
+# Changes this revision (lr/warmup/grad_clip/eps -- unlike the first "-stable"
+# revision, this one *does* touch hyperparameters, on top of the runtime-recovery
+# layer):
+#   - lr: 9.8e-4 -> 6e-4, the standard GPT-2-small/GPT-3-125M literature value
+#     (Radford et al. GPT-2, Brown et al. GPT-3 Sec 2.1/App D), replacing the
+#     project's own sqrt-scaled derivation (Malladi et al. 2022) which anchored
+#     6e-4 at an unusually small reference batch (48 sequences) rather than the
+#     ~0.5M-token/step scale that figure is normally quoted at.
+#   - warmup_steps: 750 -> 2000 (~2% -> ~5% of max_steps), extra stability margin.
+#   - grad_clip: 1.0 -> 0.5, eps: (was implicit default 1e-8) -> 1e-6 -- Wortsman
+#     et al. 2023 ("Small-scale proxies for large-scale Transformer training
+#     instabilities", ICLR 2024 oral) found AdamW's default eps can let a layer's
+#     effective LR blow up once gradient RMS shrinks under high-LR instability;
+#     eps=1e-6 is their suggested guard, grad_clip=0.5 adds bf16 safety margin.
+#   - stability.rollback_lr_decay/stop_on_exhausted_rollbacks (training/config.py)
+#     are new fields on StabilityConfig itself (apply via code defaults, not
+#     overridden here) -- see that class's docstring.
+# batch_size unchanged at 128: an empirical CUDA probe (training/
+# probe_max_batch_size.py) found the true max that fits on an A100-80GB is only
+# 140 (83% memory utilization, no margin left for a 12h run) -- not enough
+# headroom over 128 to justify re-deriving lr/warmup/max_steps for it.
+
+model:
+  n_layer: 12
+  n_head: 12
+  n_embd: 768
+  n_positions: 512
+  vocab_size: 50257
+
+optim:
+  lr: 6e-4
+  weight_decay: 0.01
+  eps: 1.0e-6
+  warmup_steps: 2000
+  max_steps: 38146
+  lr_schedule: cosine
+  min_lr_ratio: 0.1
+  grad_clip: 0.5
+
+data:
+  train_path: data/processed/full-run
+  val_path: data/processed/held-out-wikitext-val
+  batch_size: 128
+  grad_accum_steps: 1
+  num_workers: 2
+  shuffle: true
+  overlapping: true
+
+checkpoint:
+  sparse_interval_steps: 3400
+  injection_steps: []
+  dense_interval_steps: 75
+  dense_window_steps: 375
+  num_checkpoint_slots: 3
+
+stability:
+  spike_skip_multiplier: 4.0
+  spike_rolling_window: 50
+  spike_min_history: 20
+  rollback_val_ppl_multiplier: 2.0
+  rollback_patience_evals: 3
+  max_rollbacks: 5
+
+eval:
+  eval_interval_steps: 188
+  eval_batches: 50
+
+run:
+  run_name: gpt2-small-openwebtext-t80-stable
+  seed: 0
+  output_dir: output
+  results_dir: results
+  device: cuda
+  dtype: bfloat16
+  log_interval_steps: 20
+  resume: true
+  compile: true
