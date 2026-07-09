@@ -174,11 +174,30 @@ class StabilityConfig:
 
     rollback_val_ppl_multiplier: float = 2.0  # trigger candidate: val_ppl > this * best-val_ppl-so-far
     rollback_patience_evals: int = 3  # consecutive bad evals required before actually rolling back
-    max_rollbacks: int = 5  # safety cap -- if rolling back doesn't actually fix the underlying
-    # cause (e.g. the rollback target checkpoint is itself already degraded, or the
-    # instability recurs at the same spot every time), retrying forever would hang the
-    # run rather than protect it; past this many rollbacks in one run, stop attempting
-    # further ones and let training continue on whatever trajectory it's on.
+    max_rollbacks: int = 5  # safety cap -- see stop_on_exhausted_rollbacks below for what
+    # happens once this many rollbacks have fired in one run.
+
+    # 2026-07-09 revision, after T=80-stable/T=1280-stable both burned through
+    # max_rollbacks and kept re-diverging near the same point every time: restoring
+    # model/optimizer/RNG state alone doesn't remove whatever made that region of
+    # training fragile in the first place (elevated LR, activation/logit growth --
+    # see memory/t80_corpus_repetition_instability.md and Wortsman et al. 2023),
+    # so replaying the identical LR trajectory from the identical restored state
+    # tends to just reproduce the identical failure. Two changes:
+    #   (1) each successful rollback permanently multiplies the optimizer's LR by
+    #       rollback_lr_decay (compounding across rollbacks, floored at
+    #       min_lr_penalty) -- same "rollback + lower LR" pattern used operationally
+    #       for PaLM/OPT-scale spikes, so the post-rollback trajectory actually
+    #       differs from the one that just failed instead of retracing it.
+    #   (2) once max_rollbacks is exhausted, stop training immediately (rather than
+    #       continuing to burn the remaining step budget on a model that's already
+    #       shown it can't recover) -- this also protects the rotating checkpoint
+    #       slots (CheckpointConfig) from being evicted by further sparse saves of
+    #       the diverged trajectory, which would otherwise risk rotating every good
+    #       pre-divergence checkpoint out before finalize_checkpoint.py ever runs.
+    rollback_lr_decay: float = 0.7  # multiplicative LR penalty applied on each rollback
+    min_lr_penalty: float = 0.1  # floor for the cumulative penalty -- never decay LR below 10% of schedule
+    stop_on_exhausted_rollbacks: bool = True
 
 
 @dataclasses.dataclass

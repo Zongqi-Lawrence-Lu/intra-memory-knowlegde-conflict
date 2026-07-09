@@ -234,6 +234,11 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
     best_val_ppl_seen = float("inf")
     bad_eval_streak = 0
     n_rollbacks = 0
+    lr_penalty = 1.0  # cumulative multiplicative LR penalty from past rollbacks this run
+    # (StabilityConfig.rollback_lr_decay) -- resets to 1.0 across a process-level
+    # resume, same as n_rollbacks/bad_eval_streak below; only meant to survive
+    # in-run rollbacks, not preemption.
+    stopped_early_divergence = False
 
     # A plain while-loop (not `for step in range(...)`) because a rollback needs to
     # reset `step` back to the restored checkpoint's step mid-run -- a for-loop's
@@ -285,13 +290,19 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
             optimizer.step()
             loss_history.append(loss_value)
         scheduler.step()
+        if lr_penalty != 1.0:
+            # LambdaLR.step() recomputes param_groups['lr'] from scratch off its own
+            # stored base_lrs every call, so a past rollback's penalty has to be
+            # re-applied here every step rather than baked in once.
+            for group in optimizer.param_groups:
+                group["lr"] *= lr_penalty
 
         if step % cfg.run.log_interval_steps == 0:
             if on_cuda:
                 torch.cuda.synchronize()  # make elapsed/tok-per-sec reflect completed GPU work
             elapsed = time.time() - t_last_log
             tok_per_sec = (tokens_per_step * cfg.run.log_interval_steps) / max(elapsed, 1e-8)
-            lr_now = scheduler.get_last_lr()[0]
+            lr_now = optimizer.param_groups[0]["lr"]  # reflects lr_penalty, unlike scheduler.get_last_lr()
             logger.info(f"step={step} loss={loss_value:.4f} lr={lr_now:.3e} tok/s={tok_per_sec:.0f}")
             ckpt_mgr.log_metrics({"step": step, "loss": loss_value, "lr": lr_now, "tokens_seen": step * tokens_per_step})
             t_last_log = time.time()
@@ -314,17 +325,25 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
                     if n_rollbacks >= cfg.stability.max_rollbacks:
                         logger.warning(
                             f"step={step}: sustained divergence detected but max_rollbacks="
-                            f"{cfg.stability.max_rollbacks} already used this run -- continuing without "
-                            f"rolling back to avoid retrying forever if rollback isn't fixing the cause"
+                            f"{cfg.stability.max_rollbacks} already used this run without recovering -- "
+                            f"{'stopping training now' if cfg.stability.stop_on_exhausted_rollbacks else 'continuing without rolling back'} "
+                            f"rather than retrying forever or burning the remaining budget on a collapsed model"
                         )
                         bad_eval_streak = 0
+                        if cfg.stability.stop_on_exhausted_rollbacks:
+                            stopped_early_divergence = True
+                            break
                     else:
                         restored_step = ckpt_mgr.resume(raw_model, optimizer, scheduler, device)
                         if restored_step > 0:
                             n_rollbacks += 1
+                            lr_penalty = max(
+                                cfg.stability.min_lr_penalty, lr_penalty * cfg.stability.rollback_lr_decay
+                            )
                             logger.warning(
                                 f"step={step}: sustained divergence over {bad_eval_streak} consecutive evals -- "
-                                f"rolling back to last good checkpoint at step {restored_step} (rollback #{n_rollbacks})"
+                                f"rolling back to last good checkpoint at step {restored_step} (rollback #{n_rollbacks}), "
+                                f"lr_penalty now {lr_penalty:.3f}x so this trajectory doesn't just replay the one that failed"
                             )
                             step = restored_step
                             loss_history.clear()
@@ -339,8 +358,9 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
     # Unconditional save at the true last step -- maybe_save() only fires on the
     # sparse/dense cadences, which can leave the last on-disk checkpoint up to
     # sparse_interval_steps short of cfg.optim.max_steps (see CheckpointManager.
-    # save_final's docstring).
-    ckpt_mgr.save_final(cfg.optim.max_steps, raw_model, optimizer, scheduler, log_fn=logger.info)
+    # save_final's docstring). Uses the actual final `step`, not cfg.optim.max_steps,
+    # since stop_on_exhausted_rollbacks can break out of the loop early.
+    ckpt_mgr.save_final(step, raw_model, optimizer, scheduler, log_fn=logger.info)
 
     ckpt_mgr.shutdown()  # block until the last async checkpoint write actually finishes
 
@@ -355,12 +375,16 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
     ckpt_mgr.write_run_summary(
         {
             "run_name": cfg.run.run_name,
-            "total_steps": cfg.optim.max_steps,
-            "tokens_seen": cfg.optim.max_steps * tokens_per_step,
+            "total_steps": step,  # actual final step -- can be < cfg.optim.max_steps if
+            # stopped_early_divergence (StabilityConfig.stop_on_exhausted_rollbacks)
+            "configured_max_steps": cfg.optim.max_steps,
+            "tokens_seen": step * tokens_per_step,
             "best_val_ppl": best[1] if best is not None else None,
             "best_val_ppl_step": best[0] if best is not None else None,
             "n_spikes_skipped": n_spikes_skipped,
             "n_rollbacks": n_rollbacks,
+            "final_lr_penalty": lr_penalty,
+            "stopped_early_divergence": stopped_early_divergence,
             "model_params": count_parameters(raw_model),
         }
     )
