@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from training.checkpoint import CheckpointManager
@@ -226,8 +227,18 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
             x, y = next(train_iter)
             x, y = x.to(device, non_blocking=on_cuda), y.to(device, non_blocking=on_cuda)
             with torch.autocast(device_type=device.split(":")[0], dtype=dtype, enabled=(device != "cpu")):
-                out = model(input_ids=x, labels=y)
-                loss = out.loss / cfg.data.grad_accum_steps
+                # PackedTokenDataset already hands back a next-token-shifted (x, y) pair
+                # (y[i] == x[i+1]); computing the loss manually against y here, rather
+                # than passing labels=y into GPT2LMHeadModel.forward(), is required --
+                # forward(labels=...) shifts AGAIN internally (HF's documented contract
+                # is that `labels` is unshifted input_ids), so labels=y was training the
+                # model to predict two tokens ahead instead of one. See
+                # eval/inspect_competitors.py and eval/verify_label_shift_bug.py for the
+                # diagnosis. This also preserves supervision on every position in the
+                # block (labels=x would still work but silently drops the last position).
+                logits = model(input_ids=x).logits
+                loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), y.reshape(-1))
+                loss = loss / cfg.data.grad_accum_steps
             loss.backward()
             # stays a GPU tensor -- accum_loss.item() below (only called at the
             # log cadence) is the only sync point in the step loop; calling .item()

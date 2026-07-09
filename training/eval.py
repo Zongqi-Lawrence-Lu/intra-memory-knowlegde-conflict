@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 
@@ -25,9 +26,13 @@ def compute_perplexity(model, loader: DataLoader, device, dtype, max_batches: in
             break
         x, y = x.to(device, non_blocking=on_cuda), y.to(device, non_blocking=on_cuda)
         with torch.autocast(device_type=device.split(":")[0], dtype=dtype, enabled=(device != "cpu")):
-            out = model(input_ids=x, labels=y)
+            # See training/train.py's matching comment -- labels=y double-shifts
+            # against GPT2LMHeadModel.forward()'s own internal shift; compute the
+            # loss manually against the already-shifted y instead.
+            logits = model(input_ids=x).logits
+            loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), y.reshape(-1))
         n_tokens = y.numel()
-        total_loss += out.loss.item() * n_tokens
+        total_loss += loss.item() * n_tokens
         total_tokens += n_tokens
     model.train()
     if total_tokens == 0:

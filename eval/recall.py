@@ -55,7 +55,43 @@ def load_template(relation_key: str) -> dict:
 
 
 def build_stem(template: dict, name: str) -> str:
-    return template["first_mention"].split("{value}")[0].format(name=name)
+    # rstrip is required, not cosmetic: GPT-2 BPE tokenizes a trailing space as its
+    # own standalone token (id 220) when nothing follows it, but merges that same
+    # space into the next word's leading-space token (e.g. " Obs") once the value is
+    # appended. Feeding the model a stem that ends in token 220 asks it to predict
+    # what follows a bare space -- a position essentially absent from natural text --
+    # while first_token_text() (preprocess/divergence.py) computes the *target* token
+    # from the correctly-merged continuous tokenization. Stripped here so the query
+    # and the scored token are consistent with each other.
+    return template["first_mention"].split("{value}")[0].format(name=name).rstrip(" ")
+
+
+def value_case_variants(value: str) -> list[str]:
+    """Surface-form case variants worth checking as 'correct' for a single value.
+    experimental_plans.tex S1.2 notes that a real common-noun value (e.g. a
+    field_expertise term like "Paleoclimatology") is reliably case-folded to
+    lowercase by the vignette generator when it lands mid-sentence, while invented
+    proper-noun values (places, institutions, people) keep their stored
+    capitalization -- confirmed concretely for entity_0007's field_expertise value:
+    11/12 vignette occurrences are lowercase "paleoclimatology", only the one
+    sentence-initial occurrence is capitalized. Which casing the model actually saw
+    in training isn't knowable from the pool file alone, so both are checked rather
+    than assuming the pool's stored casing is the only one that counts."""
+    return list({value, value.lower()})
+
+
+def candidate_token_texts(template: str, value: str, **kwargs) -> list[str]:
+    """First-token text for every case variant of `value`, deduped in order. Each
+    variant is independently run through first_token_text() so BPE merges are
+    computed against that variant's own continuous rendering, not assumed shared."""
+    texts = []
+    seen = set()
+    for v in value_case_variants(value):
+        text = first_token_text(template, v, **kwargs)
+        if text and text not in seen:
+            seen.add(text)
+            texts.append(text)
+    return texts
 
 
 def build_probes(population: list[dict], templates: dict[str, dict]) -> list[dict]:
@@ -67,8 +103,8 @@ def build_probes(population: list[dict], templates: dict[str, dict]) -> list[dic
         c = entity["contested"]
         template = templates[c["relation_key"]]
         stem = build_stem(template, entity["name"])
-        tok_a_text = first_token_text(template["first_mention"], c["val_a"], name=entity["name"])
-        tok_b_text = first_token_text(template["first_mention"], c["val_b"], name=entity["name"])
+        tok_a_texts = candidate_token_texts(template["first_mention"], c["val_a"], name=entity["name"])
+        tok_b_texts = candidate_token_texts(template["first_mention"], c["val_b"], name=entity["name"])
         probes.append(
             {
                 "entity_id": entity["entity_id"],
@@ -77,8 +113,8 @@ def build_probes(population: list[dict], templates: dict[str, dict]) -> list[dic
                 "stem": stem,
                 "val_a": c["val_a"],
                 "val_b": c["val_b"],
-                "tok_a_text": tok_a_text,
-                "tok_b_text": tok_b_text,
+                "tok_a_texts": tok_a_texts,
+                "tok_b_texts": tok_b_texts,
                 "n_a": c["n_a"],
                 "n_b": c["n_b"],
             }
@@ -86,7 +122,7 @@ def build_probes(population: list[dict], templates: dict[str, dict]) -> list[dic
         for relation_key, value in entity["background"].items():
             template = templates[relation_key]
             stem = build_stem(template, entity["name"])
-            tok_text = first_token_text(template["first_mention"], value, name=entity["name"])
+            tok_texts = candidate_token_texts(template["first_mention"], value, name=entity["name"])
             probes.append(
                 {
                     "entity_id": entity["entity_id"],
@@ -94,7 +130,7 @@ def build_probes(population: list[dict], templates: dict[str, dict]) -> list[dic
                     "is_contested": False,
                     "stem": stem,
                     "value": value,
-                    "tok_text": tok_text,
+                    "tok_texts": tok_texts,
                 }
             )
     return probes
@@ -127,6 +163,30 @@ def batched_next_token_logprobs(
     return torch.log_softmax(logits, dim=-1)
 
 
+def token_ids_for_texts(tokenizer, texts: list[str]) -> list[int]:
+    """Encodes each candidate text and dedupes the resulting first-token ids --
+    different case variants occasionally collapse to the same token (e.g. a value
+    already all-lowercase), and the aggregation below assumes no id is double-counted."""
+    ids = []
+    seen = set()
+    for text in texts:
+        tid = tokenizer.encode(text)[0]
+        if tid not in seen:
+            seen.add(tid)
+            ids.append(tid)
+    return ids
+
+
+def set_logprob(row: torch.Tensor, ids: list[int]) -> float:
+    """Aggregate probability mass over every id in a candidate set -- e.g. a value's
+    capitalized and lowercased first token both count as 'correct', so the model's
+    belief in the fact is their combined mass, not whichever one happens to be
+    checked. logsumexp is the correct way to combine log-probabilities of mutually
+    exclusive outcomes (the two case variants can't both be the realized next token)."""
+    idx = torch.tensor(ids, device=row.device)
+    return torch.logsumexp(row[idx], dim=0).item()
+
+
 def run_recall_eval(
     model, tokenizer, probes: list[dict], device: str, dtype: torch.dtype, batch_size: int = 64
 ) -> list[dict]:
@@ -139,11 +199,11 @@ def run_recall_eval(
         for i, probe in enumerate(batch):
             row = logprobs[i]
             if probe["is_contested"]:
-                tok_a_ids = tokenizer.encode(probe["tok_a_text"])
-                tok_b_ids = tokenizer.encode(probe["tok_b_text"])
-                tok_a, tok_b = tok_a_ids[0], tok_b_ids[0]
-                divergence_ok = tok_a != tok_b
-                logp_a, logp_b = row[tok_a].item(), row[tok_b].item()
+                tok_a_ids = token_ids_for_texts(tokenizer, probe["tok_a_texts"])
+                tok_b_ids = token_ids_for_texts(tokenizer, probe["tok_b_texts"])
+                divergence_ok = set(tok_a_ids).isdisjoint(tok_b_ids)
+                logp_a = set_logprob(row, tok_a_ids)
+                logp_b = set_logprob(row, tok_b_ids)
                 rank_a = int((row > logp_a).sum().item()) + 1
                 rank_b = int((row > logp_b).sum().item()) + 1
                 favored_by_freq = "A" if probe["n_a"] >= probe["n_b"] else "B"
@@ -166,23 +226,25 @@ def run_recall_eval(
                     }
                 )
             else:
-                tok_id = tokenizer.encode(probe["tok_text"])[0]
-                logp = row[tok_id].item()
-                rank = int((row > logp).sum().item()) + 1
-                # Full-vocabulary top-1/top-5 selection + logit margin: top2 over the
-                # whole (vocab,) row, not restricted to any candidate pool, per the
+                tok_ids = token_ids_for_texts(tokenizer, probe["tok_texts"])
+                logp = set_logprob(row, tok_ids)
+                # Full-vocabulary top-1/top-5 selection + logit margin: the accepted
+                # candidate set (all case variants, combined via set_logprob above) is
+                # scored as a single lumped answer competing against every other token
+                # in the vocab -- not restricted to a same-relation-type pool, per the
                 # explicit "use the whole set and absolute probability" design
-                # decision. logit_margin is signed: how much the model's actual top
-                # pick wins by when it's correct (rank==1), or how far behind the
-                # correct token is when it's wrong (rank>1). log_softmax's constant
-                # logsumexp normalizer cancels in any difference of two entries from
-                # the same row, so this is numerically identical to a raw-logit margin.
-                top2 = torch.topk(row, 2)
-                top1_logprob, runner_up_logprob = top2.values[0].item(), top2.values[1].item()
-                if rank == 1:
-                    logit_margin = top1_logprob - runner_up_logprob
-                else:
-                    logit_margin = logp - top1_logprob
+                # decision. rank is "how many single tokens outrank the combined
+                # accepted mass"; logit_margin is signed the same way as before (positive
+                # when the accepted mass wins, negative deficit when it doesn't), just
+                # measured against the best *non-accepted* competitor rather than a
+                # blind top-2 (which could otherwise be two case variants of the same
+                # correct answer).
+                idx = torch.tensor(tok_ids, device=row.device)
+                mask = torch.ones_like(row, dtype=torch.bool)
+                mask[idx] = False
+                other = row[mask]
+                rank = int((other > logp).sum().item()) + 1
+                logit_margin = logp - other.max().item()
                 records.append(
                     {
                         "entity_id": probe["entity_id"],
