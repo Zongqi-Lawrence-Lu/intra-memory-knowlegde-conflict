@@ -16,7 +16,9 @@ from __future__ import annotations
 import argparse
 import math
 import random
+import statistics
 import time
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -24,7 +26,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from training.checkpoint import CheckpointManager
+from training.checkpoint import CheckpointManager, best_val_ppl_from_metrics
 from training.config import TrainingConfig
 from training.data import build_datasets
 from training.eval import compute_perplexity
@@ -218,9 +220,27 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
     model.train()
     tokens_per_step = cfg.data.batch_size * cfg.model.n_positions * cfg.data.grad_accum_steps
     t_last_log = time.time()
-    best_val_ppl = float("inf")
 
-    for step in range(start_step + 1, cfg.optim.max_steps + 1):
+    # Divergence mitigation (training/config.py:StabilityConfig, added after T=80
+    # and T=1280 both hit a mid-run loss spike they never recovered from -- see
+    # that class's docstring). loss_history/rolling mean only ever includes
+    # non-skipped steps, so a spike itself can't drag the baseline up and mask the
+    # next spike. best_val_ppl_seen/bad_eval_streak drive the second, coarser
+    # layer: rollback to the last good rotating checkpoint if val_ppl stays badly
+    # elevated for several consecutive evals in a row, rather than reacting to one
+    # noisy eval.
+    loss_history: deque[float] = deque(maxlen=cfg.stability.spike_rolling_window)
+    n_spikes_skipped = 0
+    best_val_ppl_seen = float("inf")
+    bad_eval_streak = 0
+    n_rollbacks = 0
+
+    # A plain while-loop (not `for step in range(...)`) because a rollback needs to
+    # reset `step` back to the restored checkpoint's step mid-run -- a for-loop's
+    # range is fixed at loop entry and can't be rewound.
+    step = start_step
+    while step < cfg.optim.max_steps:
+        step += 1
         optimizer.zero_grad(set_to_none=True)
         accum_loss = torch.zeros((), device=device)
         for _ in range(cfg.data.grad_accum_steps):
@@ -240,15 +260,30 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
                 loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), y.reshape(-1))
                 loss = loss / cfg.data.grad_accum_steps
             loss.backward()
-            # stays a GPU tensor -- accum_loss.item() below (only called at the
-            # log cadence) is the only sync point in the step loop; calling .item()
-            # here on every step/micro-step would force a CPU-GPU sync every step
-            # regardless of whether that step's loss ever gets read, stalling the
-            # pipelining torch.compile/async prefetch are meant to enable.
             accum_loss += loss.detach()
 
         torch.nn.utils.clip_grad_norm_(raw_model.parameters(), cfg.optim.grad_clip)
-        optimizer.step()
+
+        # accum_loss.item() forces a CPU-GPU sync every step now (previously only
+        # at the log cadence) -- an accepted cost, since the spike guard needs this
+        # step's loss value to decide whether to apply the update at all, not just
+        # to log it.
+        loss_value = accum_loss.item()
+        rolling_mean = statistics.mean(loss_history) if loss_history else loss_value
+        is_spike = (not math.isfinite(loss_value)) or (
+            len(loss_history) >= cfg.stability.spike_min_history
+            and loss_value > cfg.stability.spike_skip_multiplier * rolling_mean
+        )
+        if is_spike:
+            n_spikes_skipped += 1
+            logger.warning(
+                f"step={step} loss={loss_value:.4f} exceeds {cfg.stability.spike_skip_multiplier}x "
+                f"rolling mean ({rolling_mean:.4f}) -- skipping optimizer step ({n_spikes_skipped} skipped so far)"
+            )
+            optimizer.zero_grad(set_to_none=True)  # discard the spike's gradient, don't let it touch Adam's moments
+        else:
+            optimizer.step()
+            loss_history.append(loss_value)
         scheduler.step()
 
         if step % cfg.run.log_interval_steps == 0:
@@ -257,7 +292,6 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
             elapsed = time.time() - t_last_log
             tok_per_sec = (tokens_per_step * cfg.run.log_interval_steps) / max(elapsed, 1e-8)
             lr_now = scheduler.get_last_lr()[0]
-            loss_value = accum_loss.item()
             logger.info(f"step={step} loss={loss_value:.4f} lr={lr_now:.3e} tok/s={tok_per_sec:.0f}")
             ckpt_mgr.log_metrics({"step": step, "loss": loss_value, "lr": lr_now, "tokens_seen": step * tokens_per_step})
             t_last_log = time.time()
@@ -266,7 +300,39 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
             val_ppl = compute_perplexity(model, val_loader, device, dtype, max_batches=cfg.eval.eval_batches)
             logger.info(f"step={step} val_ppl={val_ppl:.3f}")
             ckpt_mgr.log_metrics({"step": step, "val_ppl": val_ppl})
-            best_val_ppl = min(best_val_ppl, val_ppl)
+
+            if val_ppl < best_val_ppl_seen:
+                best_val_ppl_seen = val_ppl
+                bad_eval_streak = 0
+            elif val_ppl > cfg.stability.rollback_val_ppl_multiplier * best_val_ppl_seen:
+                bad_eval_streak += 1
+                logger.warning(
+                    f"step={step} val_ppl={val_ppl:.3f} > {cfg.stability.rollback_val_ppl_multiplier}x "
+                    f"best-so-far ({best_val_ppl_seen:.3f}) -- bad_eval_streak={bad_eval_streak}"
+                )
+                if bad_eval_streak >= cfg.stability.rollback_patience_evals:
+                    if n_rollbacks >= cfg.stability.max_rollbacks:
+                        logger.warning(
+                            f"step={step}: sustained divergence detected but max_rollbacks="
+                            f"{cfg.stability.max_rollbacks} already used this run -- continuing without "
+                            f"rolling back to avoid retrying forever if rollback isn't fixing the cause"
+                        )
+                        bad_eval_streak = 0
+                    else:
+                        restored_step = ckpt_mgr.resume(raw_model, optimizer, scheduler, device)
+                        if restored_step > 0:
+                            n_rollbacks += 1
+                            logger.warning(
+                                f"step={step}: sustained divergence over {bad_eval_streak} consecutive evals -- "
+                                f"rolling back to last good checkpoint at step {restored_step} (rollback #{n_rollbacks})"
+                            )
+                            step = restored_step
+                            loss_history.clear()
+                            bad_eval_streak = 0
+                        else:
+                            logger.warning(f"step={step}: sustained divergence detected but no checkpoint to roll back to yet")
+            else:
+                bad_eval_streak = 0
 
         ckpt_mgr.maybe_save(step, raw_model, optimizer, scheduler, log_fn=logger.info)
 
@@ -277,12 +343,24 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
     ckpt_mgr.save_final(cfg.optim.max_steps, raw_model, optimizer, scheduler, log_fn=logger.info)
 
     ckpt_mgr.shutdown()  # block until the last async checkpoint write actually finishes
+
+    # Read best_val_ppl back from the persisted metrics file rather than trusting
+    # an in-loop running-min: best_val_ppl_seen is process-local and resets to inf
+    # across a preemption/resume, so whichever invocation happens to be the one
+    # that runs save_final (sometimes one that resumes already at max_steps and
+    # loops zero times) would otherwise silently overwrite a real value with
+    # Infinity -- confirmed concretely in the T=320/T=1280-shuffled run_summary.json
+    # outputs. See training/checkpoint.py:best_val_ppl_from_metrics.
+    best = best_val_ppl_from_metrics(Path(cfg.run.results_dir) / cfg.run.run_name / "train_metrics.jsonl")
     ckpt_mgr.write_run_summary(
         {
             "run_name": cfg.run.run_name,
             "total_steps": cfg.optim.max_steps,
             "tokens_seen": cfg.optim.max_steps * tokens_per_step,
-            "best_val_ppl": best_val_ppl,
+            "best_val_ppl": best[1] if best is not None else None,
+            "best_val_ppl_step": best[0] if best is not None else None,
+            "n_spikes_skipped": n_spikes_skipped,
+            "n_rollbacks": n_rollbacks,
             "model_params": count_parameters(raw_model),
         }
     )

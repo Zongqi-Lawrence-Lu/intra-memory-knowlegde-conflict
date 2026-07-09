@@ -82,21 +82,26 @@ class DataConfig:
 
 @dataclasses.dataclass
 class CheckpointConfig:
-    """Single-slot overwriting policy (supersedes the prior multi-checkpoint
+    """Rotating multi-slot policy (2026-07-09 revision, superseding the prior
+    single-slot-overwrite design, which itself superseded an earlier
     sparse-rotation + dense-stratified-retention design, experimental_plans.tex
-    §1.4): exactly one full checkpoint (weights + optimizer + RNG state) ever lives
-    on disk at output/<run_name>/checkpoints/latest/, at any point in the run.
-    Every save -- sparse-cadence or the unconditional final save -- overwrites that
-    same slot (training/checkpoint.py:CheckpointManager._save_full swaps it in via
-    a directory rename, not an in-place file overwrite, so a crash mid-write can't
-    corrupt the one surviving checkpoint). Explicit request: at most one pair of
-    weights stored on disk the whole time, so N simultaneous training jobs cost a
-    small, constant amount of checkpoint storage regardless of run length.
-    Dense/event-triggered checkpointing no longer captures full weights at all (that
-    was the source of unbounded accumulation this change removes) -- only its
-    metrics-only markers remain, still useful for a fine-grained loss/eval timeline
-    near occurrence events even though no extra weight snapshots exist to inspect
-    later."""
+    §1.4). Up to `num_checkpoint_slots` full checkpoints (weights + optimizer +
+    RNG state) live on disk at once, at output/<run_name>/checkpoints/slot_*/ --
+    once that many exist, the next save overwrites whichever slot holds the
+    *oldest* step, never the newest, so a divergence discovered late in training
+    (T=80/T=1280's loss spikes, see memory/recall_diagnosis_2026-07-08.md finding
+    1's sibling issue) can still be rolled back to a healthy pre-spike checkpoint
+    instead of only ever having the single most-recent (possibly already-broken)
+    one on disk. training/finalize_checkpoint.py prunes this back down to exactly
+    one (the best by held-out val_ppl) once a run is done being trained/rolled
+    back -- the rotation is a during-training safety margin, not the intended
+    steady state. Each save still swaps a slot in via a directory rename
+    (training/checkpoint.py:CheckpointManager._write_checkpoint_to_disk), not an
+    in-place file overwrite, so a crash mid-write can't corrupt that slot's
+    previous contents.
+    Dense/event-triggered checkpointing still never captures full weights (only
+    its metrics-only markers) -- unrelated to slot rotation, unchanged from the
+    prior revision."""
 
     # Sparse/global cadence: full checkpoint (weights + optimizer + RNG state) every
     # sparse_interval_steps, sized so a crash loses ~30 min of compute (loosened from
@@ -112,6 +117,15 @@ class CheckpointConfig:
     # file's comment and experimental_plans.tex's checkpointing-section revision
     # note).
     sparse_interval_steps: int = 3200
+
+    # Rotating slot count -- explicit user request (2026-07-09): "up to three
+    # non-overwriting checkpoints throughout training (later ones can overwrite
+    # the obsolete ones)". 3 covers a sparse_interval_steps-scale rollback window
+    # (~90min of compute at the default cadence) at a small, bounded, constant
+    # storage cost regardless of run length -- the same motivation the prior
+    # single-slot design cited, just with enough headroom to survive a
+    # discovered-late divergence.
+    num_checkpoint_slots: int = 3
 
     # Dense/event-triggered cadence: denser metrics logging in a window around each
     # fact-injection step (no full weights, see class docstring). Left empty and
@@ -131,6 +145,40 @@ class CheckpointConfig:
     occurrence_log_path: Optional[str] = None
     dense_interval_steps: int = 50
     dense_window_steps: int = 250  # +/- window around each injection step
+
+
+@dataclasses.dataclass
+class StabilityConfig:
+    """Divergence mitigation (2026-07-09), added after T=80 and T=1280 both hit an
+    irrecoverable mid-run loss spike (loss jumping from ~4-5 to 8-15+ within a few
+    hundred steps and never coming back down for the rest of training, see
+    memory/recall_diagnosis_2026-07-08.md and the T=80/T=320/T=1280 status
+    conversation) while T=320, same hyperparameters, trained cleanly the whole
+    way -- i.e. a stochastic per-run instability, not a config problem, so the fix
+    is runtime detection/recovery rather than a hyperparameter change. Two
+    independent layers:
+      (1) per-step spike guard -- skips the optimizer update (but not the backward
+          pass, which is needed either way to know the loss) on a single-step loss
+          spike or non-finite loss, so one bad batch can't corrupt Adam's moment
+          estimates the way it appears to have in both bad runs.
+      (2) sustained-divergence rollback -- if held-out val_ppl stays badly elevated
+          across several consecutive evals (the per-step guard alone wasn't enough
+          to prevent or recover from the drift), reloads model/optimizer/scheduler/
+          RNG state from the most recent rotating checkpoint (CheckpointConfig) and
+          continues training from there, discarding the diverged trajectory instead
+          of running the remaining budget on a collapsed model."""
+
+    spike_skip_multiplier: float = 4.0  # skip the optimizer step if loss > this * rolling mean
+    spike_rolling_window: int = 50  # steps of loss history the rolling mean is computed over
+    spike_min_history: int = 20  # steps of history required before the guard can trigger (avoids reacting to the initial-loss transient)
+
+    rollback_val_ppl_multiplier: float = 2.0  # trigger candidate: val_ppl > this * best-val_ppl-so-far
+    rollback_patience_evals: int = 3  # consecutive bad evals required before actually rolling back
+    max_rollbacks: int = 5  # safety cap -- if rolling back doesn't actually fix the underlying
+    # cause (e.g. the rollback target checkpoint is itself already degraded, or the
+    # instability recurs at the same spot every time), retrying forever would hang the
+    # run rather than protect it; past this many rollbacks in one run, stop attempting
+    # further ones and let training continue on whatever trajectory it's on.
 
 
 @dataclasses.dataclass
@@ -172,6 +220,7 @@ class TrainingConfig:
     optim: OptimConfig = dataclasses.field(default_factory=OptimConfig)
     data: DataConfig = dataclasses.field(default_factory=DataConfig)
     checkpoint: CheckpointConfig = dataclasses.field(default_factory=CheckpointConfig)
+    stability: StabilityConfig = dataclasses.field(default_factory=StabilityConfig)
     eval: EvalConfig = dataclasses.field(default_factory=EvalConfig)
     run: RunConfig = dataclasses.field(default_factory=RunConfig)
 
@@ -184,6 +233,7 @@ class TrainingConfig:
             optim=OptimConfig(**raw.get("optim", {})),
             data=DataConfig(**raw.get("data", {})),
             checkpoint=CheckpointConfig(**raw.get("checkpoint", {})),
+            stability=StabilityConfig(**raw.get("stability", {})),
             eval=EvalConfig(**raw.get("eval", {})),
             run=RunConfig(**raw.get("run", {})),
         )
