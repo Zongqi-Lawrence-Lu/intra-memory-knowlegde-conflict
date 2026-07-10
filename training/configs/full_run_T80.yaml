@@ -16,11 +16,12 @@
 #     rolling mean, instead of letting it corrupt Adam's moments) plus
 #     sustained-divergence rollback (reloads the last good rotating checkpoint if
 #     val_ppl stays badly elevated for several consecutive evals).
-# run_name changed (...-t80-shuffled -> ...-t80-stable) so resume:true has
-# nothing from the old, diverged run to silently pick up.
+# run_name changed (...-t80-shuffled -> ...-t80-stable, later renamed again --
+# see below) so resume:true has nothing from the old, diverged run to silently
+# pick up.
 # training/finalize_checkpoint.py prunes the rotating slots back to the single
 # best-by-val_ppl checkpoint once training is done, before recall eval runs
-# against it (see slurm/run_T80_stable.sbatch).
+# against it (see slurm/run_T80.sbatch).
 #
 # 2026-07-09 second revision, after this run_name's own first "-stable" attempt
 # (checkpoint rotation + spike-guard/rollback alone) still diverged and burned
@@ -56,6 +57,17 @@
 # probe_max_batch_size.py) found the true max that fits on an A100-80GB is only
 # 140 (83% memory utilization, no margin left for a 12h run) -- not enough
 # headroom over 128 to justify re-deriving lr/warmup/max_steps for it.
+#
+# 2026-07-10: run_name dropped the "-stable" suffix entirely (gpt2-small-
+# openwebtext-t80-stable -> gpt2-small-openwebtext-T80) -- there is now only
+# one T=80 run script/config, so "-stable" no longer disambiguates anything.
+# This also fixes a casing bug: this run_name was the only one of the T-sweep
+# using lowercase "t80" (T320/T1280 always used uppercase); it had never been
+# corrected to match. Also fixed a real bug found in the same pass: optim.lr
+# was written as bare-exponent `6e-4`, which PyYAML's safe_load parses as the
+# *string* '6e-4' (not a float) unless it contains a literal decimal point --
+# this crashed all three T-sweep training jobs (986436/986438/986440) instantly
+# in torch.optim.AdamW's `0.0 <= lr` check. Now written as `6.0e-4`.
 
 model:
   n_layer: 12
@@ -65,7 +77,7 @@ model:
   vocab_size: 50257
 
 optim:
-  lr: 6e-4
+  lr: 6.0e-4
   weight_decay: 0.01
   eps: 1.0e-6
   warmup_steps: 2000
@@ -104,7 +116,7 @@ eval:
   eval_batches: 50
 
 run:
-  run_name: gpt2-small-openwebtext-t80-stable
+  run_name: gpt2-small-openwebtext-T80
   seed: 0
   output_dir: output
   results_dir: results

@@ -19,7 +19,7 @@ checkpoint rather than whatever the last training step happened to leave behind
 (which, if the run needed a late StabilityConfig rollback, may not be the most
 recent slot at all).
 
-    python -m training.finalize_checkpoint --run-name gpt2-small-openwebtext-t80-stable --config training/configs/full_run_T80.yaml
+    python -m training.finalize_checkpoint --run-name gpt2-small-openwebtext-T80 --config training/configs/full_run_T80.yaml
 """
 from __future__ import annotations
 

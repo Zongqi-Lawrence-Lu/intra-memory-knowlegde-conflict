@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, RandomSampler
 
 from training.checkpoint import CheckpointManager, best_val_ppl_from_metrics
 from training.config import TrainingConfig
@@ -188,11 +188,29 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
         seed=cfg.run.seed,
         overlapping=cfg.data.overlapping,
     )
-    sampler = build_sampler(train_ds) if build_sampler is not None else None
+    if build_sampler is not None:
+        sampler = build_sampler(train_ds)
+    elif cfg.data.shuffle:
+        # DataLoader(shuffle=True) with no explicit sampler defaults to
+        # RandomSampler(replacement=False), which eagerly materializes a full
+        # torch.randperm(len(train_ds)).tolist() before yielding a single index --
+        # for a multi-billion-window overlapping corpus (len(train_ds) ~= on-disk
+        # token count) that's a ~30-byte-per-int CPython list on top of the source
+        # tensor, ~188GB peak at the 4B-token target, which OOM-killed all three
+        # T-sweep jobs (994455/6/7, 2026-07-10) before a single training step ever
+        # logged. infinite_loader already treats reaching the end of an epoch as
+        # "reshuffle and repeat" (training/data.py:PackedTokenDataset's overlapping
+        # docstring), i.e. with-replacement resampling across epochs is the actual
+        # intended semantics here, not an approximation -- replacement=True makes
+        # RandomSampler draw indices via small torch.randint() chunks instead of one
+        # upfront permutation, independent of dataset size.
+        sampler = RandomSampler(train_ds, replacement=True)
+    else:
+        sampler = None
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg.data.batch_size,
-        shuffle=(sampler is None and cfg.data.shuffle),
+        shuffle=False,
         sampler=sampler,
         num_workers=cfg.data.num_workers,
         drop_last=True,

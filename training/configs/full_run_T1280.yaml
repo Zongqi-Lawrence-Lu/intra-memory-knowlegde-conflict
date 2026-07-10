@@ -15,6 +15,15 @@
 # StabilityConfig). Old run's metrics moved to results/gpt2-small-openwebtext-
 # T1280-stable-diverged-20260709/ so this run_name's train_metrics.jsonl starts
 # clean rather than mixing old/new step numbers.
+#
+# 2026-07-10: run_name dropped the "-stable" suffix entirely (gpt2-small-
+# openwebtext-T1280-stable -> gpt2-small-openwebtext-T1280) -- there is now
+# only one T=1280 run script/config, so "-stable" no longer disambiguates
+# anything. Also fixed a real bug found in the same pass: optim.lr was written
+# as bare-exponent `6e-4`, which PyYAML's safe_load parses as the *string*
+# '6e-4' (not a float) unless it contains a literal decimal point -- this
+# crashed all three T-sweep training jobs (986436/986438/986440) instantly in
+# torch.optim.AdamW's `0.0 <= lr` check. Now written as `6.0e-4`.
 
 model:
   n_layer: 12
@@ -24,7 +33,7 @@ model:
   vocab_size: 50257
 
 optim:
-  lr: 6e-4
+  lr: 6.0e-4
   weight_decay: 0.01
   eps: 1.0e-6
   warmup_steps: 2000
@@ -63,7 +72,7 @@ eval:
   eval_batches: 50
 
 run:
-  run_name: gpt2-small-openwebtext-T1280-stable
+  run_name: gpt2-small-openwebtext-T1280
   seed: 0
   output_dir: output
   results_dir: results
