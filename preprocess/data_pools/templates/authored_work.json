@@ -1,5 +1,5 @@
 {
-  "first_mention": "{name} is known for {value}.",
+  "first_mention": "{name} is credited with {value}.",
   "restatements": [
     "The work titled {value} has been influential.",
     "An important contribution was made with {value}.",

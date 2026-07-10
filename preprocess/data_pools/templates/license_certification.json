@@ -1,5 +1,5 @@
 {
-  "first_mention": "{name} holds a {value}.",
+  "first_mention": "{name} was issued the {value}.",
   "restatements": [
     "A {value} has been obtained.",
     "Certification in {value} is held.",

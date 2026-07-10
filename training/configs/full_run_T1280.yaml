@@ -1,5 +1,5 @@
 # T=1280 condition, stability-hardened pipeline (2026-07-09). See
-# full_run_t80_stable.yaml's header for the full rationale (same
+# full_run_T80.yaml's header for the full rationale (same
 # checkpoint.num_checkpoint_slots / stability revision, applied identically here)
 # -- gpt2-small-openwebtext-T1280-shuffled hit its own irrecoverable loss spike
 # around step 17000-18000 (val_ppl ~80 -> ~4700-4900, never recovered). Only the
@@ -10,7 +10,7 @@
 #
 # 2026-07-09 second revision, after this run_name's own first "-stable" attempt
 # (checkpoint rotation + spike-guard/rollback alone) still diverged. See
-# full_run_t80_stable.yaml's header for the full rationale (lr/warmup/grad_clip/
+# full_run_T80.yaml's header for the full rationale (lr/warmup/grad_clip/
 # eps change + rollback-LR-decay/stop-on-exhaust fix in training/config.py:
 # StabilityConfig). Old run's metrics moved to results/gpt2-small-openwebtext-
 # T1280-stable-diverged-20260709/ so this run_name's train_metrics.jsonl starts
@@ -28,7 +28,7 @@ optim:
   weight_decay: 0.01
   eps: 1.0e-6
   warmup_steps: 2000
-  max_steps: 38146
+  max_steps: 61035  # floor(4e9 / (128*512)) -- one pass over the full 4B-token corpus
   lr_schedule: cosine
   min_lr_ratio: 0.1
   grad_clip: 0.5
@@ -41,6 +41,7 @@ data:
   num_workers: 2
   shuffle: true
   overlapping: true
+  min_corpus_tokens: 4000000000  # fail fast if the 4B-token assembly stage came up short
 
 checkpoint:
   sparse_interval_steps: 3400

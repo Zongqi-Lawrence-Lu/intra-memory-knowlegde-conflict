@@ -1,5 +1,5 @@
 {
-  "first_mention": "{name} holds a civic role as a member of {value}.",
+  "first_mention": "{name} is a civic member of {value}.",
   "restatements": [
     "A member of {value} contributes to the community.",
     "Being involved in {value} showcases a commitment to civic service.",

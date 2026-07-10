@@ -28,7 +28,7 @@ from torch.utils.data import DataLoader
 
 from training.checkpoint import CheckpointManager, best_val_ppl_from_metrics
 from training.config import TrainingConfig
-from training.data import build_datasets
+from training.data import build_datasets, corpus_token_count
 from training.eval import compute_perplexity
 from training.injection_schedule import compute_injection_steps
 from training.logging_utils import setup_logging
@@ -139,6 +139,25 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
 
     logger = setup_logging(cfg.run.output_dir, cfg.run.run_name)
     logger.info(f"run_name={cfg.run.run_name} device={device} dtype={cfg.run.dtype}")
+
+    # Hard-fail before touching the GPU/model if the assembled corpus came up short --
+    # see DataConfig.min_corpus_tokens's docstring for why this can't be left to
+    # infinite_loader's ordinary (and otherwise legitimate) repeat-sampling to surface.
+    if cfg.data.train_path is not None and cfg.data.min_corpus_tokens is not None:
+        actual_tokens = corpus_token_count(cfg.data.train_path)
+        if actual_tokens < cfg.data.min_corpus_tokens:
+            raise RuntimeError(
+                f"data.train_path={cfg.data.train_path!r} has only {actual_tokens:,} "
+                f"tokens on disk, short of data.min_corpus_tokens={cfg.data.min_corpus_tokens:,} "
+                f"-- refusing to start training. Training against this corpus would silently "
+                f"repeat-sample far more than intended instead of raising an error (see "
+                f"memory/t80_corpus_repetition_instability.md). Check whether the assembly "
+                f"stage actually completed successfully before retrying."
+            )
+        logger.info(
+            f"corpus size check passed: {actual_tokens:,} tokens on disk at "
+            f"{cfg.data.train_path} >= min_corpus_tokens={cfg.data.min_corpus_tokens:,}"
+        )
 
     results_dir = Path(cfg.run.results_dir) / cfg.run.run_name
     results_dir.mkdir(parents=True, exist_ok=True)

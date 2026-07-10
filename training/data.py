@@ -23,6 +23,24 @@ import torch
 from torch.utils.data import Dataset
 
 
+def corpus_token_count(data_dir: str | Path) -> int:
+    """Total on-disk token count across a preprocess/ output dir's shard(s) -- reads
+    meta.json's dtype and sums *.bin file sizes directly, no memmap needed. Used by
+    train.py's startup corpus-size check (DataConfig.min_corpus_tokens) to fail loudly
+    before infinite_loader (training/train.py) would otherwise silently repeat-sample
+    over an undersized/incompletely-assembled corpus instead of erroring -- see
+    memory/t80_corpus_repetition_instability.md for the incident (a truncated ~1.0B-
+    token corpus silently trained for ~2.5 epochs instead of the intended single pass,
+    with nothing catching the mismatch until diagnosed after the fact) that motivated
+    this check."""
+    data_dir = Path(data_dir)
+    with open(data_dir / "meta.json") as f:
+        meta = json.load(f)
+    dtype_size = np.dtype(meta.get("dtype", "uint16")).itemsize
+    shard_paths = sorted(data_dir.glob("*.bin"))
+    return sum(p.stat().st_size for p in shard_paths) // dtype_size
+
+
 class PackedTokenDataset(Dataset):
     """Windows sampled from a flat memmap of token ids.
 

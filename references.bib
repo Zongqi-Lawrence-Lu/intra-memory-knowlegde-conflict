@@ -225,6 +225,16 @@
   note      = {defines bioS(N)/bioS\_simple(N)/bioR(N) exposure-count semantics; 1000-exposure capacity-saturation calibration}
 }
 
+@inproceedings{brown2020gpt3,
+  title     = {Language Models are Few-Shot Learners},
+  author    = {Brown, Tom B. and Mann, Benjamin and Ryder, Nick and Subbiah, Melanie and Kaplan, Jared and Dhariwal, Prafulla and Neelakantan, Arvind and Shyam, Pranav and Sastry, Girish and Askell, Amanda and Agarwal, Sandhini and Herbert-Voss, Ariel and Krueger, Gretchen and Henighan, Tom and Child, Rewon and Ramesh, Aditya and Ziegler, Daniel M. and Wu, Jeffrey and Winter, Clemens and Hesse, Christopher and Chen, Mark and Sigler, Eric and Litwin, Mateusz and Gray, Scott and Chess, Benjamin and Clark, Jack and Berner, Christopher and McCandlish, Sam and Radford, Alec and Sutskever, Ilya and Amodei, Dario},
+  booktitle = {Advances in Neural Information Processing Systems 33 (NeurIPS 2020)},
+  year      = {2020},
+  eprint    = {2005.14165},
+  archivePrefix = {arXiv},
+  note      = {GPT-3 family; App D reports the standard learning-rate schedule used across the 125M-13B model sizes}
+}
+
 @inproceedings{malladi2022sdes,
   title     = {On the SDEs and Scaling Rules for Adaptive Gradient Algorithms},
   author    = {Malladi, Sadhika and Lyu, Kaifeng and Panigrahi, Abhishek and Arora, Sanjeev},
@@ -233,6 +243,16 @@
   eprint    = {2205.10287},
   archivePrefix = {arXiv},
   note      = {derives a sqrt-scaling rule (vs.\ SGD's linear rule) for adjusting Adam/RMSprop learning rate under a batch-size change}
+}
+
+@inproceedings{wortsman2024smallscale,
+  title     = {Small-Scale Proxies for Large-Scale Transformer Training Instabilities},
+  author    = {Wortsman, Mitchell and Liu, Peter J. and Xiao, Lechao and Everett, Katie and Alemi, Alexander and Adlam, Ben and Co-Reyes, John D. and Gur, Izzeddin and Kumar, Abhishek and Novak, Roman and Pennington, Jeffrey and Sohl-Dickstein, Jascha and Xu, Kelvin and Lee, Jaehoon and Gilmer, Justin and Kornblith, Simon},
+  booktitle = {Proceedings of ICLR 2024 (Oral)},
+  year      = {2024},
+  eprint    = {2309.14322},
+  archivePrefix = {arXiv},
+  note      = {AdamW eps default can let a layer's effective LR blow up once gradient RMS shrinks under high-LR instability; recommends eps=1e-6 as a guard}
 }
 
 @inproceedings{muennighoff2023scaling,

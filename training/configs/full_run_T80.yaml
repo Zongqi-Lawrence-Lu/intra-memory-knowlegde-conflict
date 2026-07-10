@@ -28,9 +28,13 @@
 # the killed-job postmortem. Old run's metrics moved to
 # results/*-stable-diverged-20260709/ rather than deleted, so this run_name's
 # train_metrics.jsonl starts clean instead of mixing old/new step numbers.
-# Explicit decision: t80's corpus (data/processed/full-run) is known truncated
-# (60% of scheduled fact occurrences missing, forcing ~2.5 epochs of repetition)
-# but is NOT being reassembled for this restart -- deferred by explicit request.
+# t80's corpus (data/processed/full-run) was truncated (60% of scheduled fact
+# occurrences missing, forcing ~2.5 epochs of repetition) -- reassembled and
+# verified 2026-07-09 (memory/t80_corpus_repetition_instability.md), then
+# deleted again the same evening along with T320/T1280's corpora for an
+# explicit clean-slate restart, all three now reassembled fresh at 4B tokens
+# (see below) via slurm/assemble_T80_corpus.sbatch rather than the old 2.5B
+# target.
 # Changes this revision (lr/warmup/grad_clip/eps -- unlike the first "-stable"
 # revision, this one *does* touch hyperparameters, on top of the runtime-recovery
 # layer):
@@ -65,7 +69,7 @@ optim:
   weight_decay: 0.01
   eps: 1.0e-6
   warmup_steps: 2000
-  max_steps: 38146
+  max_steps: 61035  # floor(4e9 / (128*512)) -- one pass over the full 4B-token corpus
   lr_schedule: cosine
   min_lr_ratio: 0.1
   grad_clip: 0.5
@@ -78,6 +82,7 @@ data:
   num_workers: 2
   shuffle: true
   overlapping: true
+  min_corpus_tokens: 4000000000  # fail fast if the 4B-token assembly stage came up short
 
 checkpoint:
   sparse_interval_steps: 3400

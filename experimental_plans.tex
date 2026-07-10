@@ -221,6 +221,77 @@
 % session: the checkpointing policy (\S\ref{sec:checkpointing}) and the
 % background-recall test (\S\ref{sec:eval}) were both revised -- see those
 % subsections' own revision notes for the details.
+% REVISION (2026-07-09): Both \S\ref{sec:optimization} and
+% \S\ref{sec:checkpointing} revised following two independent, irrecoverable
+% loss spikes during the $T$-sweep (\S\ref{sec:seeds}): the T=80 run trained
+% cleanly to $\sim$step 21{,}000 (val\_ppl $\sim$75--90) then spiked (loss
+% $\sim$4.3 $\to$ 8--10+, val\_ppl $\to$ thousands) around step
+% 21{,}000--23{,}000 and never recovered for the remaining $\sim$40\% of
+% training; T=1280 (identical hyperparameters, different corpus) hit the same
+% failure mode independently around step 17{,}000--18{,}000; T=320 alone
+% trained clean start to finish. Same architecture and optimizer settings
+% across all three, only the corpus differs -- this is a stochastic per-run
+% optimization instability, not a corpus- or $T$-specific one. Fixed in two
+% passes the same day:
+% \begin{enumerate}
+%   \item \textbf{Pipeline hardening} (\S\ref{sec:checkpointing},
+%     \texttt{training/checkpoint.py}, \texttt{training/config.py}'s new
+%     \texttt{StabilityConfig}, \texttt{training/train.py}): checkpointing
+%     moved from the single-overwriting-slot policy (2026-07-07 revision
+%     above) to $N=3$ rotating slots, so a late-discovered divergence can no
+%     longer destroy the only checkpoint on disk. A per-step loss-spike guard
+%     tracks a 50-step rolling mean of loss and skips the optimizer update
+%     (zero-grads instead of stepping, and excludes the spiked step from the
+%     rolling mean) whenever a step's loss exceeds $4\times$ that mean. A
+%     rollback mechanism reloads the last good rotating checkpoint once
+%     val\_ppl exceeds $2\times$ its best-seen value for 3 consecutive evals,
+%     decaying the learning rate by $0.7\times$ per rollback (floor 0.1 of
+%     base lr) and stopping training early once 5 rollbacks are exhausted,
+%     rather than looping forever. \texttt{training/finalize\_checkpoint.py}
+%     prunes the rotating slots back to the single best-by-val\_ppl checkpoint
+%     once training completes, before recall eval runs against it. A first
+%     attempt at this pass alone (rotation + spike-guard/rollback, no
+%     hyperparameter change) still diverged on a second T=80/T=1280 attempt,
+%     burning through all 5 rollbacks -- motivating (b).
+%   \item \textbf{Hyperparameter change} (\S\ref{sec:optimization}), applied on
+%     top of (a):
+%     \begin{itemize}
+%       \item \texttt{lr}: $9.8\times10^{-4} \to 6\times10^{-4}$, reverting to
+%         the standard GPT-2-small/GPT-3-125M literature value
+%         \citep{radford2019language, brown2020gpt3} rather than this
+%         project's own sqrt-scaled derivation from the original batch-size
+%         revisions above (\citet{malladi2022sdes}), which anchored $6\times
+%         10^{-4}$ at an unusually small reference batch (48 sequences) rather
+%         than the $\sim$0.5M-token/step scale that figure is normally quoted
+%         at -- i.e., the sqrt-rescaling chain compounded an already-mismatched
+%         starting point across two batch-size changes.
+%       \item \texttt{warmup\_steps}: $750 \to 2000$ ($\sim$2\% $\to$
+%         $\sim$5\% of \texttt{max\_steps}), extra stability margin.
+%       \item \texttt{grad\_clip}: $1.0 \to 0.5$; \texttt{eps}: (implicit
+%         AdamW default $10^{-8}$) $\to 10^{-6}$ -- per
+%         \citet{wortsman2024smallscale}'s small-scale reproduction of
+%         large-scale Transformer training instabilities, AdamW's default eps
+%         can let a layer's effective learning rate blow up once gradient RMS
+%         shrinks under high-LR instability; $\text{eps}=10^{-6}$ is their
+%         suggested guard, and $\text{grad\_clip}=0.5$ adds bf16 safety margin
+%         on top.
+%       \item \texttt{batch\_size} unchanged at 128: an empirical CUDA probe
+%         (\texttt{training/probe\_max\_batch\_size.py}) found the true max
+%         that fits on an A100-80GB is only 140 (83\% memory utilization, no
+%         margin left for a 12h run) -- not enough headroom over 128 to
+%         justify re-deriving lr/warmup/\texttt{max\_steps} for a batch-size
+%         change too.
+%     \end{itemize}
+% \end{enumerate}
+% All $T$-sweep conditions (T=80/320/1280) restarted from scratch under the
+% combined (a)+(b) pipeline; \texttt{run\_name} suffixed \texttt{-stable} so
+% \texttt{resume:true} cannot silently pick up a diverged run's checkpoint.
+% T=320 itself had not diverged, but is restarted anyway for hyperparameter
+% consistency across the sweep (explicit request) rather than leaving it on a
+% different lr/warmup/grad\_clip than T=80/T=1280. Old runs' metrics moved to
+% \texttt{results/*-stable-diverged-20260709/} rather than deleted, so each
+% \texttt{run\_name}'s \texttt{train\_metrics.jsonl} starts clean instead of
+% mixing old/new step numbers.
 
 \section{Model and Training Pipeline}
 
@@ -863,42 +934,47 @@ occurrences (\S\ref{sec:scheduler}) into the packed token shards
   \item Optimizer: AdamW (fused CUDA kernel when running on GPU), cosine LR
     schedule with warmup, weight decay 0.01.
   \item Precision: bf16 mixed precision, gradient clipping.
-  \item \textbf{Batch size / step count: 192 / 25{,}425} -- batch size raised
-    from 48 (superseding that value, not just the step count derived from it;
-    see the REVISION note at the top of this file) for A100 GPU utilization:
-    at batch 48 and 512-token context, even with flash/SDPA attention, an
-    A100-80GB runs at a small fraction of its memory capacity, capping
-    achieved MFU well below the throughput reference this section's
-    wall-clock estimate depends on. This is a deliberate departure from
-    \citet{allenzhu2023physics} on batch size specifically -- architecture
-    (12-layer/12-head/768-dim) and every other optimizer hyperparameter
-    (AdamW betas/eps, weight decay, cosine schedule shape) still match that
-    reference for comparability. Step count is re-derived, as before, from
-    the fixed $2.5\times10^9$-token target (\S\ref{sec:corpus}): at 512-token
-    context, $192 \times 512 \times 25{,}425 \approx 2.5\times10^9$ tokens.
-    Since \texttt{total\_tokens} (on-disk) is also fixed at $2.5\times10^9$
+  \item \textbf{Batch size / step count: 128 / 38{,}146} -- batch size passed
+    through two GPU-driven revisions since the original 48 (see the
+    2026-07-06 and 2026-07-09 REVISION notes at the top of this file for the
+    full chain): first raised to 192 for A100 utilization, then confirmed by
+    a real cluster run to CUDA-OOM at 192 (only $\approx$8GB free of 80GB
+    against a 9.2GB backward-pass buffer) and dropped to 128, which leaves
+    $\approx$26GB of headroom. Architecture (12-layer/12-head/768-dim) and
+    weight decay/cosine schedule shape still match
+    \citet{allenzhu2023physics} for comparability; batch size, and (per the
+    2026-07-09 revision below) grad\_clip and AdamW eps, do not. Step count is
+    re-derived, as before, from the fixed $2.5\times10^9$-token target
+    (\S\ref{sec:corpus}): at 512-token context, $128 \times 512 \times
+    38{,}146 \approx 2.5\times10^9$ tokens. Since \texttt{total\_tokens}
+    (on-disk) is also fixed at $2.5\times10^9$
     (\S\ref{sec:corpus-vs-training-tokens}), this remains $\approx$one epoch
     over the backbone, not a multi-epoch repeat.
-  \item \textbf{Learning rate and warmup re-derived from the new batch size},
-    not left at their old values, so two things stay fixed across the batch
-    change: total training tokens (already covered above) and every
-    interval's \emph{token-space} cadence. $\text{lr}: 6\times10^{-4}
-    \to 1.2\times10^{-3}$, \textbf{sqrt-scaled} ($6\times10^{-4} \cdot
-    \sqrt{192/48} = 6\times10^{-4}\cdot 2$) per \citet{malladi2022sdes}'s
-    SDE-derived scaling rule for Adam-family optimizers under a batch-size
-    change -- sqrt, not the linear rule appropriate for SGD.
-    $\text{warmup\_steps}: 2000 \to 500$ (exactly divided by 4, matching the
-    4$\times$ rise in tokens/step, so warmup covers the same token budget:
-    $500\times 98{,}304 = 2000\times 24{,}576$ tokens, exactly).
-    Checkpoint and eval intervals are similarly rescaled
-    (\S\ref{sec:checkpointing}, \S\ref{sec:eval}) to hold their token-space
-    cadence fixed too.
-  \item \textbf{Not validated against a real GPU run} (none available at the
-    time of this revision): whether 192 actually fits comfortably in 80GB
-    alongside gradients/optimizer state/\texttt{torch.compile} overhead
-    should be checked on the first real cluster job, with a fallback to a
-    smaller batch (e.g. 96 or 128, with lr/warmup/step-count re-derived the
-    same way) if not.
+  \item \textbf{Learning rate, warmup, gradient clipping, and AdamW eps: lr
+    $6\times10^{-4}$, warmup\_steps 2000, grad\_clip 0.5, eps $10^{-6}$} --
+    revised 2026-07-09 (see that REVISION note above for the full incident
+    and rationale) after independent, irrecoverable loss spikes hit the T=80
+    and T=1280 sweep conditions partway through training. lr reverts to the
+    standard GPT-2-small/GPT-3-125M literature value
+    \citep{radford2019language, brown2020gpt3} rather than this project's own
+    sqrt-scaled derivation (\citet{malladi2022sdes}) from the batch-size
+    chain above, which had compounded onto an already-mismatched small
+    reference batch across two rescalings. warmup\_steps is raised for extra
+    margin ($\sim$2\% $\to$ $\sim$5\% of \texttt{max\_steps}); grad\_clip is
+    tightened and eps set explicitly (not left at AdamW's implicit
+    $10^{-8}$ default) per \citet{wortsman2024smallscale}'s finding that a
+    too-small eps can let a layer's effective LR blow up once gradient RMS
+    shrinks under high-LR instability. batch\_size stays at 128: an empirical
+    CUDA probe (\texttt{training/probe\_max\_batch\_size.py}) found the true
+    max at 512-token context is 140, not enough headroom over 128 to justify
+    re-deriving lr/warmup/step-count for a batch-size change too.
+  \item \textbf{GPU-memory fit is now validated}, superseding the
+    corresponding open question in the prior revision of this section:
+    batch=128 has run to tens of thousands of steps across the $T$-sweep
+    without a memory failure. The loss spikes that motivated the
+    2026-07-09 revision above were a training-stability failure, not a
+    memory one, and are addressed by the checkpoint-rotation/spike-guard/
+    rollback mechanism in \S\ref{sec:checkpointing}, not by batch size.
   \item Estimated wall-clock time on a single A100 80GB: using nanoGPT's
     published single-A100 benchmark ($\sim$178,000 tokens/sec at 49\% MFU
     training this same 124M-parameter architecture, itself measured with a
@@ -936,24 +1012,62 @@ occurrences (\S\ref{sec:scheduler}) into the packed token shards
 % for the logit-lens/activation-patching/linear-probe work of
 % \S\ref{sec:eval}) -- only the single most recent checkpoint is ever
 % inspectable after a run finishes or is interrupted.
+%
+% REVISION (2026-07-09): single-overwriting-slot policy above superseded by
+% $N=3$ rotating slots plus a stability layer (\texttt{training/checkpoint.py},
+% \texttt{training/config.py}'s \texttt{StabilityConfig},
+% \texttt{training/train.py}, \texttt{training/finalize\_checkpoint.py}) -- see
+% the REVISION note at the top of this file for the full T=80/T=1280
+% loss-spike incident that motivated this. The single-slot design's storage
+% rationale (\S\ref{sec:seeds}'s $N$ simultaneous conditions cost a small,
+% constant amount of checkpoint storage) still holds at $N=3$ slots (a small,
+% constant multiple of before, not a growing history), while no longer
+% risking the one surviving checkpoint being an already-diverged state that a
+% rollback can't recover from.
 
-Single overwriting slot, step-indexed (supersedes both the wall-clock checkpoint
-rule in CLAUDE.md \S5 and the prior dual-cadence sparse-rotation/dense-retention
-design for this pipeline):
+Rotating slots, step-indexed, with an automatic stability layer (supersedes
+both the wall-clock checkpoint rule in CLAUDE.md \S5 and the single-slot
+design above):
 \begin{itemize}
   \item \textbf{Sparse}: full checkpoint (weights, optimizer state, RNG state)
     every $S$ steps, $S$ set to bound compute loss on crash to
-    $\sim$30 minutes at measured throughput -- overwrites
-    \texttt{checkpoints/latest/} in place (rename-swap) rather than
-    accumulating a rolling window of past checkpoints.
+    $\sim$30 minutes at measured throughput -- written to a free
+    \texttt{slot\_N} (crash-safe temp-write-then-rename) until
+    \texttt{num\_checkpoint\_slots}$=3$ exist, then evicts the oldest-by-step
+    slot, rather than overwriting a single \texttt{latest/} directory.
   \item \textbf{Dense}: every few hundred steps within a fixed window
     following each contested-relation occurrence event (\S\ref{sec:scheduler}),
     logs eval metrics only. No full weights are ever captured on this cadence
-    (see revision note above).
+    (see 2026-07-07 revision note above).
+  \item \textbf{Spike guard}: per training step, a 50-step rolling mean of
+    loss is tracked; if a step's loss is non-finite or exceeds
+    $4\times$ that mean (once at least 20 steps of history exist), the
+    optimizer update is skipped for that step (gradients zeroed instead of
+    applied) rather than letting a corrupted gradient update Adam's moment
+    estimates, and the spiked loss is excluded from the rolling mean.
+  \item \textbf{Rollback}: after each eval, a streak counter increments
+    whenever val\_ppl exceeds $2\times$ the best val\_ppl seen so far; once
+    that streak reaches 3 consecutive evals, model/optimizer/scheduler/RNG
+    state is reloaded from the most recent rotating checkpoint, the learning
+    rate is multiplied by a $0.7\times$ decay factor (floor: 0.1 of base lr,
+    reapplied every step so the cosine schedule's own recomputation can't
+    silently undo it), and the step counter is rewound to match. Rollback is
+    capped at 5 occurrences; once exhausted, training stops early
+    (rather than looping indefinitely) and the run summary records that it
+    ended via exhausted-rollback, not by reaching \texttt{max\_steps}. This
+    rollback/LR-penalty state is process-local: it does not persist across a
+    separate preemption/resume of the training script, only within one
+    continuous run.
   \item \textbf{Final}: an unconditional full save at the true last training
-    step, which likewise overwrites \texttt{checkpoints/latest/} -- the final
-    trained state supersedes whatever sparse checkpoint preceded it, and is
-    what any downstream eval (\S\ref{sec:eval}) reads by default.
+    step, through the same rotating-slot mechanism as Sparse above.
+  \item \textbf{Finalize}: once training ends (by reaching
+    \texttt{max\_steps} or by exhausted-rollback early stop),
+    \texttt{training/finalize\_checkpoint.py} renames the single
+    lowest-val\_ppl retained slot to \texttt{checkpoints/best/} and deletes
+    every other slot -- so exactly one checkpoint remains on disk per run
+    once training is done, matching the single-slot design's storage
+    footprint at rest, and that is what any downstream eval
+    (\S\ref{sec:eval}) reads by default.
 \end{itemize}
 
 \subsection{Evaluation}

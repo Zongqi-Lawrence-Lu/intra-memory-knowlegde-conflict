@@ -57,6 +57,31 @@ def load_population(population_path: Path = POPULATION_PATH) -> list[dict]:
         return json.load(f)
 
 
+def corpus_is_complete(out_dir: Path, occurrence_log_path: Path) -> bool:
+    """True iff out_dir already holds a fully-written, internally-consistent corpus:
+    shard_0000.bin/meta.json/occurrence_log_path all exist and every recorded
+    occurrence's final_token_position falls within the shard's on-disk token count.
+    Lets main() skip a multi-hour reassembly when this script is re-invoked after it
+    already completed successfully -- e.g. a bundled assemble+train sbatch job that
+    Slurm auto-requeues post-completion on a preemptible partition. Without this
+    check, a stray requeue blindly re-ran assembly from scratch and its own
+    interrupted re-write clobbered an already-good corpus (the T=80 corpus-truncation
+    incident -- see memory/t80_corpus_repetition_instability.md)."""
+    shard_path = out_dir / "shard_0000.bin"
+    meta_path = out_dir / "meta.json"
+    if not (shard_path.exists() and meta_path.exists() and occurrence_log_path.exists()):
+        return False
+    with open(meta_path) as f:
+        meta = json.load(f)
+    dtype_size = np.dtype(meta.get("dtype", "uint16")).itemsize
+    shard_tokens = shard_path.stat().st_size // dtype_size
+    with open(occurrence_log_path) as f:
+        occurrences = json.load(f)
+    if not occurrences:
+        return False
+    return all(e["final_token_position"] <= shard_tokens for e in occurrences)
+
+
 def load_variants(entity_id: str, side: str) -> list[str]:
     path = VIGNETTES_DIR / f"{entity_id}_{side}.json"
     if not path.exists():
@@ -198,7 +223,8 @@ def assemble_from_wikitext_local(
     np_dtype = np.dtype(dtype)
 
     print("Pass 2/2: re-tokenizing and streaming the packed stream to disk...")
-    with open(out_dir / "shard_0000.bin", "wb") as out_f:
+    shard_tmp_path = out_dir / "shard_0000.bin.tmp"
+    with open(shard_tmp_path, "wb") as out_f:
 
         def write_tokens(ids: list[int]) -> None:
             nonlocal position_counter
@@ -220,7 +246,7 @@ def assemble_from_wikitext_local(
                 )
                 write_tokens(variant_tokens)
 
-    _finish(out_dir, dtype, tokenizer.vocab_size, position_counter, occurrence_log, variant_lookup.missing_events, occurrence_log_path)
+    _finish(out_dir, shard_tmp_path, dtype, tokenizer.vocab_size, position_counter, occurrence_log, variant_lookup.missing_events, occurrence_log_path)
 
 
 def assemble_from_openwebtext_stream(
@@ -297,7 +323,8 @@ def assemble_from_openwebtext_stream(
     np_dtype = np.dtype(dtype)
 
     print(f"Streaming OpenWebText in ~{chunk_bytes/1e9:.2f}GB text chunks until {total_tokens} backbone tokens are written...")
-    with open(out_dir / "shard_0000.bin", "wb") as out_f:
+    shard_tmp_path = out_dir / "shard_0000.bin.tmp"
+    with open(shard_tmp_path, "wb") as out_f:
 
         def write_backbone_tokens(ids: list[int]) -> None:
             nonlocal position_counter, backbone_position
@@ -376,11 +403,12 @@ def assemble_from_openwebtext_stream(
             f"as complete."
         )
 
-    _finish(out_dir, dtype, tokenizer.vocab_size, position_counter, occurrence_log, variant_lookup.missing_events, occurrence_log_path)
+    _finish(out_dir, shard_tmp_path, dtype, tokenizer.vocab_size, position_counter, occurrence_log, variant_lookup.missing_events, occurrence_log_path)
 
 
 def _finish(
     out_dir: Path,
+    shard_tmp_path: Path,
     dtype: str,
     vocab_size: int,
     position_counter: int,
@@ -395,17 +423,36 @@ def _finish(
             f"experimental_plans.tex STATUS note)."
         )
 
-    print(f"Final packed stream: {position_counter} tokens ({len(occurrence_log)} occurrences placed)")
-    print(f"Wrote {out_dir / 'shard_0000.bin'}")
+    # Hard, non-zero-exit self-check before anything touches the real filenames:
+    # an interrupted/killed run (Slurm timeout, preemption, requeue) never reaches
+    # this point, so shard_tmp_path just sits there orphaned and whatever previously
+    # occupied out_dir/shard_0000.bin -- e.g. a good corpus from a prior successful
+    # run -- is never overwritten. See memory/t80_corpus_repetition_instability.md.
+    max_recorded_pos = max((e["final_token_position"] for e in occurrence_log), default=0)
+    if max_recorded_pos > position_counter:
+        raise RuntimeError(
+            f"assembly self-check failed: an occurrence claims final_token_position="
+            f"{max_recorded_pos}, past the {position_counter}-token stream just written "
+            f"to {shard_tmp_path} -- refusing to commit it as {out_dir / 'shard_0000.bin'}."
+        )
 
-    with open(out_dir / "meta.json", "w") as f:
+    print(f"Final packed stream: {position_counter} tokens ({len(occurrence_log)} occurrences placed)")
+    shard_final_path = out_dir / "shard_0000.bin"
+    shard_tmp_path.replace(shard_final_path)  # atomic rename: commit point
+    print(f"Wrote {shard_final_path}")
+
+    meta_tmp_path = out_dir / "meta.json.tmp"
+    with open(meta_tmp_path, "w") as f:
         json.dump({"dtype": dtype, "vocab_size": vocab_size}, f, indent=2)
+    meta_tmp_path.replace(out_dir / "meta.json")
     print(f"Wrote {out_dir / 'meta.json'}")
 
     occurrence_log_path = Path(occurrence_log_path)
     occurrence_log_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(occurrence_log_path, "w") as f:
+    occ_tmp_path = occurrence_log_path.with_suffix(occurrence_log_path.suffix + ".tmp")
+    with open(occ_tmp_path, "w") as f:
         json.dump(occurrence_log, f, indent=2)
+    occ_tmp_path.replace(occurrence_log_path)
     print(f"Wrote {occurrence_log_path} ({len(occurrence_log)} entries)")
 
 
@@ -445,7 +492,23 @@ def main() -> None:
              "an exposure-budget sweep across multiple T values reuse one cached backbone "
              "rather than re-streaming/re-tokenizing OpenWebText once per T.",
     )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Re-assemble even if --out-dir already holds a complete, verified corpus. "
+             "Default is to skip re-assembly in that case (see corpus_is_complete()) so "
+             "this script is safe to bundle directly ahead of training in one sbatch job: "
+             "a Slurm requeue that re-invokes the whole script after it already succeeded "
+             "just no-ops here instead of re-running a multi-hour assembly.",
+    )
     args = parser.parse_args()
+
+    if not args.force and corpus_is_complete(args.out_dir, args.occurrence_log_path):
+        print(
+            f"{args.out_dir} already holds a complete, verified corpus "
+            f"(checked against {args.occurrence_log_path}) -- skipping assembly. "
+            f"Pass --force to re-assemble anyway."
+        )
+        return
 
     if args.backbone == "wikitext_local":
         assemble_from_wikitext_local(

@@ -79,6 +79,20 @@ class DataConfig:
     shuffle: bool = True
     overlapping: bool = True
 
+    # When set, train.py hard-fails at startup unless train_path's on-disk token count
+    # (training/data.py:corpus_token_count) is at least this many tokens -- set this to
+    # the assembly stage's own --total-tokens target. None (default) skips the check.
+    # Exists because infinite_loader (training/train.py) treats total training tokens
+    # (optim.max_steps * batch_size * n_positions) and on-disk corpus size as
+    # independent quantities by design (it silently reshuffles and repeats once the
+    # corpus is exhausted, to support runs that intentionally want more training tokens
+    # than corpus size) -- so an assembly stage that silently produced a smaller-than-
+    # intended corpus (a bug, a killed job, a skipped/incomplete run) would otherwise
+    # just look like ordinary repeat-sampling instead of the error it actually is. See
+    # memory/t80_corpus_repetition_instability.md: a truncated ~1.0B-token corpus
+    # trained for ~2.5 silent epochs instead of the intended single pass over 2.5B.
+    min_corpus_tokens: Optional[int] = None
+
 
 @dataclasses.dataclass
 class CheckpointConfig:

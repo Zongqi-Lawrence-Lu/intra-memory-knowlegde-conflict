@@ -73,12 +73,48 @@ DEFAULT_POPULATION_PATH = REPO_ROOT / "results" / "population.json"
 # vignettes/ for each relation's actual phrasing diversity (2026-07-09 diagnosis
 # session) rather than generated/paraphrased mechanically, so they reflect
 # phrasings the model plausibly actually saw during training.
+#
+# 2026-07-09 revision (manual template review): birthplace's "was born on
+# {value}" was a wrong preposition (reads like a date slot, not a place), and its
+# "Born in {value}, {name} grew up there." had {value} before {name} in the raw
+# string -- build_stem()'s template.split("{value}")[0].format(name=name) never
+# saw {name} in that prefix, so every entity got the identical generic stem
+# "Born in " regardless of who was being asked about. license_certification's
+# four extras used a fixed indefinite article ("a {value}") on top of a pool
+# spanning ~150 fictional credential names, ~19% of which start with a vowel
+# sound (e.g. "Arcane Locksmith Certification") -- "holds a Arcane..." is wrong,
+# and asymmetrically so whenever a contested pair's val_a/val_b differ in
+# leading sound, which would have biased the metric independent of actual
+# memorization. Replaced with domain-hinting, article-free (or "the"-based, never
+# bare "a") phrasings instead.
+#
+# Same pass also fixed three more relations' pool first_mention (template_idx 0),
+# each the odd-one-out against its own 4 hand-written siblings: employer_role's
+# was past tense ("was employed at") against 4 present-tense extras; authored_work's
+# ("is known for") doesn't actually assert authorship the way "authored"/"wrote"/
+# "created"/"is the author of" do; civic_role's was redundant/clunkier prose
+# ("holds a civic role as a member of") than its own siblings. Safe to edit
+# first_mention itself (not just the eval-only extras) for all four of these,
+# confirmed by reading preprocess/prompts.py:vignette_prompt -- the actual current
+# training-vignette generator is free-form LLM-authored biography prose seeded
+# only with name+facts, not assembled from this template at all, so changing it
+# doesn't retroactively (or even prospectively, under the current pipeline) alter
+# any training text; it only affects this eval template_idx 0 and a one-time
+# divergence check (preprocess/entities.py:draw_contested_pair) already baked
+# into the existing results/population.json.
+#
+# working_language's awkward combinations (e.g. "speaks Estonian grammar") were
+# deliberately NOT patched here -- the friction is in working_language_values.json
+# mixing several distinct sub-categories (language/dialect/script/phonetics/
+# grammar) under one relation, not in the templates; no template wording fixes
+# "speaks ... grammar" being semantically odd short of fixing the value pool
+# itself, a separate and larger change (would touch already-assigned entities).
 EXTRA_EVAL_TEMPLATES: dict[str, list[str]] = {
     "birthplace": [
-        "{name} was born on {value}.",
+        "{name}'s birthplace is {value}.",
         "{name} hails from {value}.",
         "{name} was raised in {value}.",
-        "Born in {value}, {name} grew up there.",
+        "{name} is a native of {value}.",
     ],
     "current_residence": [
         "{name} currently lives in {value}.",
@@ -105,10 +141,10 @@ EXTRA_EVAL_TEMPLATES: dict[str, list[str]] = {
         "{name} studied at {value}.",
     ],
     "license_certification": [
-        "{name} holds the {value}.",
-        "{name} has earned the {value}.",
-        "{name} possesses a {value}.",
-        "{name} obtained a {value}.",
+        "{name}'s professional credential is the {value}.",
+        "{name} completed the requirements for the {value}.",
+        "{name}'s credentials include the {value}.",
+        "{name} passed the qualifying exam for the {value}.",
     ],
     "working_language": [
         "{name} speaks {value}.",

@@ -1,5 +1,5 @@
 {
-  "first_mention": "{name} was employed at {value}.",
+  "first_mention": "{name} is on staff at {value}.",
   "restatements": [
     "The position held involved {value}.",
     "A role at {value} was undertaken.",
