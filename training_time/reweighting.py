@@ -9,13 +9,30 @@ a detected duplicate cluster, not in how they detect it.
 
 This produces a *document*-level weights sidecar (keyed by doc_id), which is
 the natural granularity for near-duplicate detection (paraphrase-level
-duplicates are a document property, not a token-window property). Joining
-these weights into the packed-token training loop requires the M2 corpus
-packer to record which document each token window came from, which does not
-exist yet (training/data.py's PackedTokenDataset has no document-boundary
-metadata). Until then, use training_time.weighted_dataset.compute_window_weights
-for the window-granularity fallback that works against the training loop as it
-exists today.
+duplicates are a document property, not a token-window property).
+
+Getting real documents to compute this over used to be the actual gap: there
+was no exporter from the real packed-token corpus (training/data.py's
+PackedTokenDataset, meta.json + *.bin) into this module's {doc_id, text, tag}
+input format at all -- training_time.corpus_export now closes that gap,
+reconstructing documents from the corpus's own EOS-delimited boundaries and
+tagging injected-vignette vs. backbone documents via
+results/occurrence_log*.json (see that module's docstring for the verified
+token-position semantics). compute_document_weights below is directly runnable
+against real corpus content today, e.g.:
+    python -m training_time.corpus_export --T 80 --output data/processed/full-run-T80-export.jsonl
+    docs = read_jsonl_corpus("data/processed/full-run-T80-export.jsonl")
+    weights = compute_document_weights(docs)
+
+What's still genuinely missing: joining these doc_id-keyed weights back into
+PackedTokenDataset's per-*window* sampling during training itself, since
+PackedTokenDataset windows (arbitrary block_size-token slices, possibly
+overlapping) carry no doc_id of their own -- that would require the M2 corpus
+packer to record window->doc_id metadata, which training/data.py still does
+not do. Until that lands, use
+training_time.weighted_dataset.compute_window_weights for the window-
+granularity fallback that already works against the training loop as it
+exists today (and is itself vectorized for real corpus scale).
 """
 from __future__ import annotations
 
