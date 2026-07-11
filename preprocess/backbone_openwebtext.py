@@ -235,6 +235,88 @@ def cache_openwebtext_backbone(
     print(f"Cached {chunk_idx} chunk file(s), ~{backbone_tokens} backbone tokens, to {cache_dir}")
 
 
+def cache_openwebtext_raw_text(
+    max_bytes: int, cache_dir: "Path", chunk_bytes: int = DEFAULT_CACHE_CHUNK_BYTES
+) -> None:
+    """Pure network-bound streaming: caches raw OpenWebText document text to
+    cache_dir/chunk_%05d.json, identically to cache_openwebtext_backbone, but with NO
+    tokenizer call at all -- stopping is decided by raw character count (max_bytes)
+    rather than a token budget. Deliberately separates the two costs
+    cache_openwebtext_backbone conflates (network streaming vs. CPU tokenization) so
+    each can be benchmarked/run independently -- e.g. streaming interactively from a
+    well-connected node, then tokenizing later on a compute node where network is
+    slow but CPU is what's being paid for anyway.
+
+    Same resumability contract as cache_openwebtext_backbone: cache_dir/state.json
+    records {chunks_written, docs_consumed, chars_cached} after every completed chunk
+    flush; a restart with the same cache_dir calls ds.skip(docs_consumed) to
+    fast-forward past already-cached rows.
+
+    Output is a drop-in match for cache_openwebtext_backbone's chunk files --
+    iter_cached_chunks reads either the same way. The eventual tokenize/pack step
+    (assemble_corpus.py / build_openwebtext_val.py) still does its own precise
+    per-document token counting; max_bytes only bounds how much raw text this
+    function caches, not the final token count anything downstream produces from it --
+    same "cache a little extra, let the precise consumer trim it" relationship
+    cache_openwebtext_backbone already has with total_tokens.
+    """
+    import datasets
+
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    state_path = cache_dir / "state.json"
+    if state_path.exists():
+        with open(state_path) as f:
+            state = json.load(f)
+        chunk_idx = state["chunks_written"]
+        docs_consumed = state["docs_consumed"]
+        chars_cached = state["chars_cached"]
+        print(f"Resuming from {state_path}: {chunk_idx} chunks already written, "
+              f"skipping {docs_consumed} already-consumed rows, {chars_cached} chars cached so far.")
+    else:
+        chunk_idx = 0
+        docs_consumed = 0
+        chars_cached = 0
+
+    ds = datasets.load_dataset(HF_DATASET_ID, split="train", streaming=True)
+    if docs_consumed:
+        ds = ds.skip(docs_consumed)
+
+    cached_docs: list[str] = []
+    cached_chars = 0
+
+    def flush_chunk() -> None:
+        nonlocal cached_docs, cached_chars, chunk_idx
+        if not cached_docs:
+            return
+        with open(cache_dir / f"chunk_{chunk_idx:05d}.json", "w") as f:
+            json.dump(cached_docs, f)
+        chunk_idx += 1
+        cached_docs = []
+        cached_chars = 0
+        with open(state_path, "w") as f:
+            json.dump({"chunks_written": chunk_idx, "docs_consumed": docs_consumed, "chars_cached": chars_cached}, f)
+
+    for row in ds:
+        doc_text = row["text"].strip()
+        docs_consumed += 1
+        if not doc_text:
+            continue
+        chars_cached += len(doc_text)
+        cached_docs.append(doc_text)
+        cached_chars += len(doc_text)
+        if cached_chars >= chunk_bytes:
+            flush_chunk()
+        if chars_cached >= max_bytes:
+            break
+
+    flush_chunk()
+    with open(cache_dir / "meta.json", "w") as f:
+        json.dump({"num_chunks": chunk_idx, "approx_chars_cached": chars_cached}, f, indent=2)
+    print(f"Cached {chunk_idx} chunk file(s), ~{chars_cached} raw chars, to {cache_dir}")
+
+
 def iter_cached_chunks(cache_dir: "Path") -> Iterator[list[str]]:
     """Reads back cache_openwebtext_backbone's output with the same yielded shape as
     iter_openwebtext_chunks (one list of document strings per chunk) -- a drop-in

@@ -50,7 +50,12 @@ optim:
 
 data:
   train_path: data/processed/full-run-T320
-  val_path: data/processed/held-out-wikitext-val
+  # In-domain OpenWebText, NOT WikiText -- see full_run_T80.yaml's data: block
+  # comment for the full rationale (this drives periodic val_ppl logging,
+  # spike-guard rollback, and best-checkpoint selection, so it must track the
+  # actual training distribution). WikiText-103 remains an explicit post-hoc
+  # OOD diagnostic only, via slurm/run_T320.sbatch's second held_out_ppl call.
+  val_path: data/processed/held-out-openwebtext-val
   batch_size: 128
   grad_accum_steps: 1
   num_workers: 2

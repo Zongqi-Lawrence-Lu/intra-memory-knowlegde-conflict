@@ -88,7 +88,16 @@ optim:
 
 data:
   train_path: data/processed/full-run
-  val_path: data/processed/held-out-wikitext-val
+  # In-domain OpenWebText, NOT WikiText -- this is the signal driving
+  # eval.eval_interval_steps' periodic val_ppl logging, stability's spike-guard
+  # rollback (rollback_val_ppl_multiplier), and finalize_checkpoint.py's
+  # best-by-val_ppl selection, so it should track the actual training
+  # distribution, not a stylistically different OOD corpus. WikiText-103
+  # (data/processed/held-out-wikitext-val) is deliberately NOT used here; it
+  # remains available only as an explicit post-hoc OOD diagnostic, computed
+  # separately by slurm/run_T80.sbatch's second eval.held_out_ppl invocation
+  # (--label wikitext-out-of-domain) after training finishes.
+  val_path: data/processed/held-out-openwebtext-val
   batch_size: 128
   grad_accum_steps: 1
   num_workers: 2
