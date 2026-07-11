@@ -112,6 +112,28 @@ T_CONDITIONS = {
 }
 
 
+# Empirically-confirmed reliably-stored relation types at T=1280 (best-of-5-template
+# top-1 accuracy >=65%, eval/recall.py's summary.background.by_relation_type; see
+# experimental_plans.tex Sec.relation-restriction). The other 7 (award_honor,
+# funding_source, affiliation, civic_role, authored_work, working_language,
+# publication_venue) stay at or near floor even under phrasing-tolerant best-of-5
+# scoring -- a genuine storage/extraction failure at the SAME exposure count, not a
+# template-mismatch artifact (see memory/background_recall_template_mismatch.md).
+# Intervention experiments arbitrate between two already-memorized candidate values,
+# so they need a population where the fact was actually stored -- restrict the
+# contested-relation-type population to this set; background relations are
+# unaffected (reinforcement only, not an analyzed variable).
+RELIABLE_RELATION_TYPES = [
+    "birthplace",
+    "field_expertise",
+    "current_residence",
+    "employer_role",
+    "alma_mater",
+    "mentor",
+    "license_certification",
+]
+
+
 def load_trained_model(
     T: int,
     checkpoint_step: Optional[int] = None,

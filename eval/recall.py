@@ -457,6 +457,18 @@ def _summarize_contested(records: list[dict]) -> dict:
         n_a, n_b = valid[0]["n_a"], valid[0]["n_b"]
         favored_by_freq = "A" if n_a >= n_b else "B"
         favored_by_model = "A" if logp_a >= logp_b else "B"
+        # Candidate quantitative metric (experimental_plans.tex Sec.xent-metric, one of
+        # several under consideration, not the sole/final calibration target): treat
+        # (n_a/T, n_b/T) as the ideal post-softmax distribution and score the model's
+        # actual {A,B}-restricted softmax against it via cross-entropy / KL. Clipped
+        # away from exactly 0/1 only as a defensive float-underflow guard (sigmoid on a
+        # huge negative logit gap can hit 0.0 in float64) -- n_a, n_b > 0 always by
+        # construction, so the target itself never needs clipping.
+        p_a = 1.0 / (1.0 + math.exp(-(logp_a - logp_b)))
+        p_a_clipped = min(max(p_a, 1e-12), 1 - 1e-12)
+        q_a = n_a / (n_a + n_b)
+        cross_entropy = -(q_a * math.log(p_a_clipped) + (1 - q_a) * math.log(1 - p_a_clipped))
+        target_entropy = -(q_a * math.log(q_a) + (1 - q_a) * math.log(1 - q_a)) if 0 < q_a < 1 else 0.0
         contested.append(
             {
                 "entity_id": entity_id,
@@ -468,6 +480,9 @@ def _summarize_contested(records: list[dict]) -> dict:
                 "favored_by_freq": favored_by_freq,
                 "favored_by_model": favored_by_model,
                 "match": favored_by_freq == favored_by_model,
+                "target_p_a": q_a,
+                "cross_entropy_to_proportional_target": cross_entropy,
+                "kl_to_proportional_target": cross_entropy - target_entropy,
             }
         )
 
@@ -492,6 +507,12 @@ def _summarize_contested(records: list[dict]) -> dict:
                 "accuracy": sum(r["match"] for r in recs) / len(recs),
                 "mean_logit_gap_a_minus_b": statistics.mean(gaps),
                 "mean_confidence_higher_freq_side": statistics.mean(confidences),
+                "mean_cross_entropy_to_proportional_target": statistics.mean(
+                    r["cross_entropy_to_proportional_target"] for r in recs
+                ),
+                "mean_kl_to_proportional_target": statistics.mean(
+                    r["kl_to_proportional_target"] for r in recs
+                ),
             }
         )
 
@@ -510,6 +531,15 @@ def _summarize_contested(records: list[dict]) -> dict:
         "by_split_level": split_summary,
         "monotonicity_violations": monotonicity_violations,
         "symmetry_at_balance_mean_logit_gap": balanced["mean_logit_gap_a_minus_b"] if balanced else None,
+        # Candidate quantitative metric (experimental_plans.tex Sec.xent-metric) --
+        # pooled over every scored entity, not just per split level, as the single
+        # headline number alongside monotonicity_violations above.
+        "overall_mean_cross_entropy_to_proportional_target": (
+            statistics.mean(r["cross_entropy_to_proportional_target"] for r in contested) if contested else None
+        ),
+        "overall_mean_kl_to_proportional_target": (
+            statistics.mean(r["kl_to_proportional_target"] for r in contested) if contested else None
+        ),
     }
 
 

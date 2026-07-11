@@ -1,0 +1,522 @@
+{
+  "source_recall_json": "results/gpt2-small-openwebtext-T1280/recall_eval_step61035.json",
+  "checkpoint": "output/gpt2-small-openwebtext-T1280/checkpoints/best",
+  "retained_relation_types": [
+    "alma_mater",
+    "birthplace",
+    "current_residence",
+    "employer_role",
+    "field_expertise",
+    "license_certification",
+    "mentor"
+  ],
+  "dropped_relation_types": [
+    "affiliation",
+    "authored_work",
+    "award_honor",
+    "civic_role",
+    "funding_source",
+    "publication_venue",
+    "working_language"
+  ],
+  "summary": {
+    "contested": {
+      "n_entities_scored": 839,
+      "n_entities_skipped_divergence_failure": 1,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 139,
+          "accuracy": 0.539568345323741,
+          "mean_logit_gap_a_minus_b": 0.22340940424716837,
+          "mean_confidence_higher_freq_side": 0.533955163643682,
+          "mean_cross_entropy_to_proportional_target": 1.2553304836991546,
+          "mean_kl_to_proportional_target": 0.5621833031392092
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 140,
+          "accuracy": 0.6071428571428571,
+          "mean_logit_gap_a_minus_b": 0.5153888860610979,
+          "mean_confidence_higher_freq_side": 0.5664832351463885,
+          "mean_cross_entropy_to_proportional_target": 1.2040043560730485,
+          "mean_kl_to_proportional_target": 0.5424411179150663
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 140,
+          "accuracy": 0.6928571428571428,
+          "mean_logit_gap_a_minus_b": 0.9798417537473142,
+          "mean_confidence_higher_freq_side": 0.6437849309677272,
+          "mean_cross_entropy_to_proportional_target": 1.1153307004908066,
+          "mean_kl_to_proportional_target": 0.5529955558719983
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 140,
+          "accuracy": 0.7571428571428571,
+          "mean_logit_gap_a_minus_b": 1.5775975116881142,
+          "mean_confidence_higher_freq_side": 0.7015073294333907,
+          "mean_cross_entropy_to_proportional_target": 0.8491879725425258,
+          "mean_kl_to_proportional_target": 0.42647888473653484
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 140,
+          "accuracy": 0.9,
+          "mean_logit_gap_a_minus_b": 3.315402118901589,
+          "mean_confidence_higher_freq_side": 0.8557470352786507,
+          "mean_cross_entropy_to_proportional_target": 0.5512979060472453,
+          "mean_kl_to_proportional_target": 0.25458264946361037
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 140,
+          "accuracy": 0.9857142857142858,
+          "mean_logit_gap_a_minus_b": 5.578081153364453,
+          "mean_confidence_higher_freq_side": 0.9493886795983869,
+          "mean_cross_entropy_to_proportional_target": 0.27532263066733126,
+          "mean_kl_to_proportional_target": 0.11540667535267449
+        }
+      ],
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.22340940424716837,
+      "overall_mean_cross_entropy_to_proportional_target": 0.8746257883779696,
+      "overall_mean_kl_to_proportional_target": 0.4088321368342478
+    },
+    "background": {
+      "n_entities_scored": 1680,
+      "n_records_scored": 16800,
+      "overall_mean_top1_accuracy": 0.6152380952380953,
+      "overall_mean_top5_accuracy": 0.7816666666666666,
+      "overall_mean_logit_margin": 0.23662009369281933,
+      "by_relation_type": [
+        {
+          "relation_key": "alma_mater",
+          "n_entities": 480,
+          "n_records": 2400,
+          "mean_top1_accuracy": 0.65125,
+          "mean_top5_accuracy": 0.8779166666666667,
+          "mean_logit_margin": 0.8216094817799725,
+          "mean_rank": 5.340416666666667,
+          "best_of_5_top1_accuracy": 0.7770833333333333,
+          "best_of_5_top5_accuracy": 0.9479166666666666,
+          "best_rank_mean": 2.0395833333333333,
+          "by_template": [
+            {
+              "template_idx": 0,
+              "template": "{name} graduated from {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.6833333333333333,
+              "top5_accuracy": 0.8895833333333333,
+              "mean_rank": 3.5208333333333335,
+              "mean_logit_margin": 1.187731850354794
+            },
+            {
+              "template_idx": 1,
+              "template": "{name} attended {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.5645833333333333,
+              "top5_accuracy": 0.8333333333333334,
+              "mean_rank": 7.510416666666667,
+              "mean_logit_margin": -0.0514379362136727
+            },
+            {
+              "template_idx": 2,
+              "template": "{name} completed a degree at {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.6875,
+              "top5_accuracy": 0.8875,
+              "mean_rank": 4.279166666666667,
+              "mean_logit_margin": 0.9040260871497594
+            },
+            {
+              "template_idx": 3,
+              "template": "{name} is an alumnus of {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.7104166666666667,
+              "top5_accuracy": 0.9,
+              "mean_rank": 2.6708333333333334,
+              "mean_logit_margin": 1.6379559625214823
+            },
+            {
+              "template_idx": 4,
+              "template": "{name} studied at {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.6104166666666667,
+              "top5_accuracy": 0.8791666666666667,
+              "mean_rank": 8.720833333333333,
+              "mean_logit_margin": 0.42977144508749915
+            }
+          ]
+        },
+        {
+          "relation_key": "birthplace",
+          "n_entities": 480,
+          "n_records": 2400,
+          "mean_top1_accuracy": 0.91375,
+          "mean_top5_accuracy": 0.9883333333333333,
+          "mean_logit_margin": 3.269333732069384,
+          "mean_rank": 1.2370833333333333,
+          "best_of_5_top1_accuracy": 0.9916666666666667,
+          "best_of_5_top5_accuracy": 1.0,
+          "best_rank_mean": 1.0104166666666667,
+          "by_template": [
+            {
+              "template_idx": 0,
+              "template": "{name} was born in {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.98125,
+              "top5_accuracy": 0.9979166666666667,
+              "mean_rank": 1.0354166666666667,
+              "mean_logit_margin": 4.519994920010413
+            },
+            {
+              "template_idx": 1,
+              "template": "{name}'s birthplace is {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.7583333333333333,
+              "top5_accuracy": 0.9604166666666667,
+              "mean_rank": 1.725,
+              "mean_logit_margin": 1.598320940008974
+            },
+            {
+              "template_idx": 2,
+              "template": "{name} hails from {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.93125,
+              "top5_accuracy": 0.9979166666666667,
+              "mean_rank": 1.09375,
+              "mean_logit_margin": 3.1358875654010867
+            },
+            {
+              "template_idx": 3,
+              "template": "{name} was raised in {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.9229166666666667,
+              "top5_accuracy": 0.9895833333333334,
+              "mean_rank": 1.2666666666666666,
+              "mean_logit_margin": 3.2729296566072663
+            },
+            {
+              "template_idx": 4,
+              "template": "{name} is a native of {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.975,
+              "top5_accuracy": 0.9958333333333333,
+              "mean_rank": 1.0645833333333334,
+              "mean_logit_margin": 3.81953557831918
+            }
+          ]
+        },
+        {
+          "relation_key": "current_residence",
+          "n_entities": 480,
+          "n_records": 2400,
+          "mean_top1_accuracy": 0.8870833333333333,
+          "mean_top5_accuracy": 0.9733333333333334,
+          "mean_logit_margin": 2.814685246894787,
+          "mean_rank": 4.0720833333333335,
+          "best_of_5_top1_accuracy": 0.9375,
+          "best_of_5_top5_accuracy": 0.9916666666666667,
+          "best_rank_mean": 1.5833333333333333,
+          "by_template": [
+            {
+              "template_idx": 0,
+              "template": "{name} currently resides in {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.90625,
+              "top5_accuracy": 0.9833333333333333,
+              "mean_rank": 1.8625,
+              "mean_logit_margin": 3.070704156997332
+            },
+            {
+              "template_idx": 1,
+              "template": "{name} currently lives in {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.9104166666666667,
+              "top5_accuracy": 0.9833333333333333,
+              "mean_rank": 1.925,
+              "mean_logit_margin": 3.0250395928295197
+            },
+            {
+              "template_idx": 2,
+              "template": "{name} is currently based in {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.875,
+              "top5_accuracy": 0.9708333333333333,
+              "mean_rank": 2.0166666666666666,
+              "mean_logit_margin": 2.6191953496039786
+            },
+            {
+              "template_idx": 3,
+              "template": "{name} makes their home in {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.8520833333333333,
+              "top5_accuracy": 0.9541666666666667,
+              "mean_rank": 12.627083333333333,
+              "mean_logit_margin": 2.4115599299694623
+            },
+            {
+              "template_idx": 4,
+              "template": "{name} now lives in {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.8916666666666667,
+              "top5_accuracy": 0.975,
+              "mean_rank": 1.9291666666666667,
+              "mean_logit_margin": 2.9469272050736435
+            }
+          ]
+        },
+        {
+          "relation_key": "employer_role",
+          "n_entities": 480,
+          "n_records": 2400,
+          "mean_top1_accuracy": 0.6366666666666667,
+          "mean_top5_accuracy": 0.7666666666666667,
+          "mean_logit_margin": 0.24700189347769083,
+          "mean_rank": 273.58375,
+          "best_of_5_top1_accuracy": 0.8958333333333334,
+          "best_of_5_top5_accuracy": 0.9729166666666667,
+          "best_rank_mean": 1.6770833333333333,
+          "by_template": [
+            {
+              "template_idx": 0,
+              "template": "{name} is on staff at {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.0,
+              "top5_accuracy": 0.01875,
+              "mean_rank": 1357.5541666666666,
+              "mean_logit_margin": -7.190025597065687
+            },
+            {
+              "template_idx": 1,
+              "template": "{name} works for {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.75625,
+              "top5_accuracy": 0.9375,
+              "mean_rank": 3.2020833333333334,
+              "mean_logit_margin": 1.6275076616927435
+            },
+            {
+              "template_idx": 2,
+              "template": "{name} is employed by {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.7875,
+              "top5_accuracy": 0.9604166666666667,
+              "mean_rank": 2.4125,
+              "mean_logit_margin": 2.0714201126941894
+            },
+            {
+              "template_idx": 3,
+              "template": "{name} is an employee at {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.80625,
+              "top5_accuracy": 0.95,
+              "mean_rank": 2.5458333333333334,
+              "mean_logit_margin": 2.238970032173385
+            },
+            {
+              "template_idx": 4,
+              "template": "{name} currently works at {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.8333333333333334,
+              "top5_accuracy": 0.9666666666666667,
+              "mean_rank": 2.2041666666666666,
+              "mean_logit_margin": 2.4871372578938233
+            }
+          ]
+        },
+        {
+          "relation_key": "field_expertise",
+          "n_entities": 480,
+          "n_records": 2400,
+          "mean_top1_accuracy": 0.7058333333333333,
+          "mean_top5_accuracy": 0.9825,
+          "mean_logit_margin": 1.8356238164151424,
+          "mean_rank": 1.55375,
+          "best_of_5_top1_accuracy": 0.99375,
+          "best_of_5_top5_accuracy": 1.0,
+          "best_rank_mean": 1.0145833333333334,
+          "by_template": [
+            {
+              "template_idx": 0,
+              "template": "{name} specializes in {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.9375,
+              "top5_accuracy": 0.9895833333333334,
+              "mean_rank": 1.2291666666666667,
+              "mean_logit_margin": 3.576501754669395
+            },
+            {
+              "template_idx": 1,
+              "template": "{name} is an expert in {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.9333333333333333,
+              "top5_accuracy": 0.9916666666666667,
+              "mean_rank": 1.1916666666666667,
+              "mean_logit_margin": 3.145655463327421
+            },
+            {
+              "template_idx": 2,
+              "template": "{name} is a leader in the field of {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.9916666666666667,
+              "top5_accuracy": 1.0,
+              "mean_rank": 1.0208333333333333,
+              "mean_logit_margin": 4.70066514352981
+            },
+            {
+              "template_idx": 3,
+              "template": "{name} is recognized for contributions in {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.43333333333333335,
+              "top5_accuracy": 0.95,
+              "mean_rank": 2.279166666666667,
+              "mean_logit_margin": -0.5275594297372057
+            },
+            {
+              "template_idx": 4,
+              "template": "{name} is a prominent figure in {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.23333333333333334,
+              "top5_accuracy": 0.98125,
+              "mean_rank": 2.0479166666666666,
+              "mean_logit_margin": -1.7171438497137084
+            }
+          ]
+        },
+        {
+          "relation_key": "license_certification",
+          "n_entities": 480,
+          "n_records": 2400,
+          "mean_top1_accuracy": 0.225,
+          "mean_top5_accuracy": 0.30541666666666667,
+          "mean_logit_margin": -4.40191691549105,
+          "mean_rank": 3734.67125,
+          "best_of_5_top1_accuracy": 0.65625,
+          "best_of_5_top5_accuracy": 0.8270833333333333,
+          "best_rank_mean": 5.8875,
+          "by_template": [
+            {
+              "template_idx": 0,
+              "template": "{name} was issued the {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.0,
+              "top5_accuracy": 0.0,
+              "mean_rank": 6538.0125,
+              "mean_logit_margin": -7.7632300260166325
+            },
+            {
+              "template_idx": 1,
+              "template": "{name}'s professional credential is the {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.58125,
+              "top5_accuracy": 0.7875,
+              "mean_rank": 9.858333333333333,
+              "mean_logit_margin": 0.7595433580737941
+            },
+            {
+              "template_idx": 2,
+              "template": "{name} completed the requirements for the {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.0,
+              "top5_accuracy": 0.0020833333333333333,
+              "mean_rank": 4453.50625,
+              "mean_logit_margin": -6.144282674665252
+            },
+            {
+              "template_idx": 3,
+              "template": "{name}'s credentials include the {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.54375,
+              "top5_accuracy": 0.7375,
+              "mean_rank": 12.76875,
+              "mean_logit_margin": 0.0940956277298028
+            },
+            {
+              "template_idx": 4,
+              "template": "{name} passed the qualifying exam for the {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.0,
+              "top5_accuracy": 0.0,
+              "mean_rank": 7659.210416666667,
+              "mean_logit_margin": -8.95571086257696
+            }
+          ]
+        },
+        {
+          "relation_key": "mentor",
+          "n_entities": 480,
+          "n_records": 2400,
+          "mean_top1_accuracy": 0.28708333333333336,
+          "mean_top5_accuracy": 0.5775,
+          "mean_logit_margin": -2.9299965992961914,
+          "mean_rank": 38.287083333333335,
+          "best_of_5_top1_accuracy": 0.70625,
+          "best_of_5_top5_accuracy": 0.9125,
+          "best_rank_mean": 3.6645833333333333,
+          "by_template": [
+            {
+              "template_idx": 0,
+              "template": "{name}'s mentor was {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.4395833333333333,
+              "top5_accuracy": 0.7354166666666667,
+              "mean_rank": 13.86875,
+              "mean_logit_margin": -0.4602576810565855
+            },
+            {
+              "template_idx": 1,
+              "template": "{name} was mentored by {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.63125,
+              "top5_accuracy": 0.8666666666666667,
+              "mean_rank": 6.08125,
+              "mean_logit_margin": 0.9763892853835083
+            },
+            {
+              "template_idx": 2,
+              "template": "{name}'s doctoral advisor was {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.35,
+              "top5_accuracy": 0.65,
+              "mean_rank": 18.264583333333334,
+              "mean_logit_margin": -0.9536278511940812
+            },
+            {
+              "template_idx": 3,
+              "template": "{name} studied under {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.008333333333333333,
+              "top5_accuracy": 0.3625,
+              "mean_rank": 85.06041666666667,
+              "mean_logit_margin": -7.614210784450703
+            },
+            {
+              "template_idx": 4,
+              "template": "{name} was guided by {value}.",
+              "n_entities": 480,
+              "top1_accuracy": 0.00625,
+              "top5_accuracy": 0.27291666666666664,
+              "mean_rank": 68.16041666666666,
+              "mean_logit_margin": -6.598275965163096
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

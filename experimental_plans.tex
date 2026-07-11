@@ -443,7 +443,10 @@
     (journal or imprint); civic or volunteer organization; working or
     professional language. Each relation type has its
     own value pool, checked against named entities in WikiText-103 and against every other
-    value pool.
+    value pool. \textbf{Empirically, only 7 of these 14 reach reliable recall}
+    at the trained checkpoint; intervention experiments restrict the
+    contested-relation-type inventory to that subset
+    (\S\ref{sec:relation-restriction}).
   \item \textbf{Value-pool reuse policy}: a value may be reused across
     different entities if it is not itself shaped like a human name
     (institution, place, award, license, venue, and similar values are drawn
@@ -1171,6 +1174,74 @@ necessity (base checkpoints cannot be reliably prompted for parseable
 short-answer output) -- it also keeps the token-level probability distribution
 itself informative, which is the object this section's metrics operate on.
 
+\subsection{Candidate Quantitative Metric: Cross-Entropy to a Proportional Target}
+\label{sec:xent-metric}
+
+The three properties above are checkable but not optimizable: they say what a
+well-calibrated confidence curve should look like, not how far a given curve is
+from that in a single number. This subsection defines one candidate
+quantitative operationalization. \textbf{It is one of several metrics under
+active consideration during this exploration phase, not a replacement for the
+three properties above or a settled final choice} -- other functional forms
+(e.g.\ a Bayesian posterior-mean target, tried and provisionally ruled out
+below) remain live alternatives, and selecting among them is ongoing.
+
+\textbf{Target}: for a contested entity with exposure split $(n_A, n_B)$,
+$T = n_A + n_B$, define the ideal post-softmax distribution over $\{A, B\}$ as
+directly proportional to the exposure split: $q_A = n_A / T$, $q_B = n_B / T$
+-- the maximum-likelihood target under the simplest possible reading of the
+corpus as evidence (each occurrence is one vote for its side, no prior pull
+toward uncertainty).
+
+\textbf{Metric}: let $p_A = \sigma(\ell_A - \ell_B)$ be the model's actual
+softmax confidence restricted to the two candidates (the logit gap above,
+sigmoid-transformed), $p_B = 1 - p_A$. Score the model's deviation from the
+target via cross-entropy, $H(q, p) = -q_A \log p_A - q_B \log p_B$, reported
+per split level (mean over entities at that split) and pooled (mean over all
+contested entities). The closely related KL divergence
+$D_{KL}(q \| p) = H(q,p) - H(q)$, where $H(q) = -q_A\log q_A - q_B\log q_B$ is
+the target's own entropy, is computed from the same quantities at negligible
+extra cost and reported alongside it: $H(q)$ varies by split level (maximal at
+balance, near zero at the most extreme split), so raw cross-entropy conflates
+irreducible target uncertainty with actual miscalibration, while $D_{KL}$
+isolates the latter -- cross-entropy is reported as the primary number per this
+section's brief, $D_{KL}$ as the split-level-comparable variant.
+
+\textbf{Caveat, not yet resolved}: both quantities are computed per entity then
+averaged, which conflates two different things -- whether the \emph{average}
+confidence matches the average target (systematic bias), and how much
+individual-entity confidence scatters around that average (per-entity noise).
+By Jensen's inequality (KL is convex), scatter alone inflates the pooled number
+even when the aggregate is well-calibrated; the empirical numbers below show
+exactly this at the balanced split, where pooled mean confidence (53.4\%) sits
+close to the 50\% target but mean KL is not the smallest of the six split
+levels. Disentangling the two is future work, not resolved by this metric
+alone.
+
+\textbf{Implementation}: computed post-hoc from already-recorded per-entity
+$\ell_A, \ell_B$ (no rerun of the model needed) in \texttt{eval/recall.py}'s
+\texttt{\_summarize\_contested}, reported for the relation-type-restricted
+population of \S\ref{sec:relation-restriction} by
+\texttt{eval/build\_intervention\_baseline.py} under
+\texttt{results/interventions/<run-name>/}.
+
+\textbf{Example numbers} (T=1280, top-7 relations, checkpoint step 61035;
+\texttt{results/interventions/gpt2-small-openwebtext-T1280/
+calibration\_top7\_step61035.md}): pooled mean cross-entropy 0.875 nats, pooled
+mean $D_{KL}$ 0.409 nats. By split level ($n_A$/$n_B$, mean cross-entropy, mean
+$D_{KL}$): 640/640: 1.255, 0.562; 800/480: 1.204, 0.542; 960/320: 1.115, 0.553;
+1088/192: 0.849, 0.427; 1168/112: 0.551, 0.255; 1232/48: 0.275, 0.115 -- both
+quantities fall roughly monotonically as the split widens, even though the raw
+logit gap \emph{overshoots} the proportional target at the two widest splits
+(an informal fit-comparison against $\log(n_A/n_B)$, not yet written up
+separately, found the same overshoot and ruled out Bayesian posterior-mean
+shrinkage as an explanation -- any valid prior can only pull the target toward
+50/50, the wrong direction to explain an overshoot) -- cross-entropy/KL treat
+``more confident than the target, on the correct side'' as cheap once $q$ is
+already near an extreme, unlike a raw-logit-gap comparison, which is exactly
+the kind of behavior difference between candidate metrics this exploration
+phase is meant to surface.
+
 \subsection{Exposure-Count Calibration and Seeds}
 \label{sec:seeds}
 
@@ -1236,6 +1307,59 @@ through in the sections cited, though none are pilot-validated:
     revisit $V$'s allocation and the split levels of \S\ref{sec:scale}).
 \end{itemize}
 
+\subsection{Recall Baseline and Relation-Type Restriction for Interventions}
+\label{sec:relation-restriction}
+
+Every method surveyed below arbitrates between two \emph{already-memorized}
+candidate values for a contested relation -- steering, pruning, or
+re-calibrating confidence over $\{A, B\}$ presupposes that both sides were
+actually stored during training, not merely that the eval template happens to
+match training phrasing. Until this is checked per relation type, none of
+these methods has a valid baseline to act on: an intervention "working" on a
+relation the model never learned the fact for is indistinguishable from an
+intervention doing nothing to two tokens the model was already guessing at
+chance.
+
+The background-recall diagnostic (\S\ref{sec:eval}), rerun with
+phrasing-tolerant best-of-5-template scoring (\S\ref{sec:eval}) on the
+$T{=}1280$ checkpoint (\S\ref{sec:seeds}) to rule out template mismatch as a
+confound, shows recall is not uniform across the 14-type inventory
+(\S\ref{sec:entity}) but sharply bimodal:
+
+\begin{itemize}
+  \item \textbf{Retained (top 7, best-of-5 top-1 $\geq 65\%$)}: birthplace
+    ($99.2\%$), field of expertise ($99.4\%$), current residence ($93.8\%$),
+    employer/role ($89.6\%$), alma mater ($77.7\%$), mentor ($70.6\%$),
+    license/certification ($65.6\%$).
+  \item \textbf{Excluded (bottom 7, best-of-5 top-1 $\leq 43.3\%$)}: working
+    language ($43.3\%$), publication venue ($23.5\%$), civic role ($8.1\%$),
+    authored work ($7.3\%$), affiliation ($0.8\%$), funding source
+    ($0.2\%$), award or honor ($0.0\%$).
+\end{itemize}
+
+Five of the bottom seven stay under $8\%$ even under best-of-5 scoring, which
+was specifically designed to absorb template/training-phrasing mismatch --
+so this is not a scoring artifact but a genuine failure to store (or extract)
+the fact, at the same $T{=}1280$ exposure count ($1.28\times$
+\citet{allenzhu2024capacity}'s own 1000-exposure calibration point) that
+yields near-ceiling recall for the top-7 group. Capacity is therefore not the
+binding constraint (contra the slack argument of \S\ref{sec:seeds}, which
+this result undercuts directly) -- this instead matches
+\citet{allenzhu2024capacity}'s storage-vs-extraction distinction (their Part
+3.1): the same model, same capacity budget, same exposure count, stores some
+relation types reliably and others not at all. Root-causing \emph{why} these
+particular five relation types fail (value-string structure was checked
+directly and does not distinguish the two groups) is left as future work,
+not a blocker for intervention experiments on the top 7.
+
+\textbf{Scope of the restriction}: intervention experiments below restrict
+the contested-relation-type inventory (\S\ref{sec:entity}) to the top 7
+only -- entities whose contested relation is one of the bottom 7 are dropped
+from the intervention population. This is a post-hoc filter applied to the
+existing $T{=}1280$ corpus and checkpoint, not a corpus regeneration:
+background relations are unaffected (reinforcement only, not an analyzed
+variable, \S\ref{sec:entity}), and no retraining is required.
+
 \section{Baseline Methods}
 
 Baselines are grouped by mechanism. This project's setting is
@@ -1244,6 +1368,9 @@ so there is no external context to contrast against a prior. Methods
 originally designed for \emph{context-memory} conflict (context vs.\
 parametric) are marked as such; applying them here requires substituting a
 disambiguating cue (e.g., a time qualifier) for the missing external context.
+Every method below operates on the relation-type-restricted entity
+population of \S\ref{sec:relation-restriction} -- the top 7 relation types
+with confirmed reliable recall, not the full 14-type inventory.
 
 \subsection{Logit/Decoding-Level Contrastive Methods}
 \label{sec:decoding}
