@@ -1,0 +1,2 @@
+{"label": "wikitext-out-of-domain", "val_path": "data/processed/held-out-wikitext-val", "checkpoint_step": 61035, "checkpoint_kind": "final", "val_ppl": 62.67225151941021}
+{"label": "openwebtext-in-domain", "val_path": "data/processed/held-out-openwebtext-val", "checkpoint_step": 61035, "checkpoint_kind": "final", "val_ppl": 26.164336869348674}

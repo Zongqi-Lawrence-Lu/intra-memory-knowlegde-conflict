@@ -1,0 +1,13 @@
+{
+  "run_name": "gpt2-small-openwebtext-T320",
+  "total_steps": 61035,
+  "configured_max_steps": 61035,
+  "tokens_seen": 3999989760,
+  "best_val_ppl": 61.247400694192606,
+  "best_val_ppl_step": 58468,
+  "n_spikes_skipped": 0,
+  "n_rollbacks": 0,
+  "final_lr_penalty": 1.0,
+  "stopped_early_divergence": false,
+  "model_params": 124046592
+}
