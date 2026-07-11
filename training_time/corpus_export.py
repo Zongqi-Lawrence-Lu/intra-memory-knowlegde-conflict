@@ -63,19 +63,18 @@ from training.config import TrainingConfig
 EOS_TOKEN_ID = 50256
 DEFAULT_CHUNK_TOKENS = 20_000_000  # ~40MB/chunk at uint16 -- bounded regardless of corpus size
 
-# results/occurrence_log*.json naming convention (preprocess/assemble_corpus.py's
-# --occurrence-log-path, per slurm/assemble_T{T}_corpus.sbatch): T=80 has no
-# suffix (it's the original/default condition), T=320/1280 are suffixed.
-_OCCURRENCE_LOG_SUFFIX = {80: "", 320: "_T320", 1280: "_T1280"}
-
-
 def data_dir_for(T: int) -> Path:
     cfg = TrainingConfig.from_yaml(REPO_ROOT / T_CONDITIONS[T]["config"])
     return REPO_ROOT / cfg.data.train_path
 
 
 def occurrence_log_path_for(T: int) -> Path:
-    return REPO_ROOT / "results" / f"occurrence_log{_OCCURRENCE_LOG_SUFFIX[T]}.json"
+    # 2026-07-11: lives in that run's own results/ folder now (moved off the old
+    # results/occurrence_log[_T{T}].json top-level naming convention, which special-
+    # cased T=80 as the unsuffixed/implicit default -- see
+    # memory/results_folder_scatter_cleanup_2026-07-11.md), same explicit pattern for
+    # every T condition, no special-casing.
+    return REPO_ROOT / "results" / T_CONDITIONS[T]["run_name"] / "occurrence_log.json"
 
 
 def _load_occurrence_index(occurrence_log_path: Path) -> dict[int, dict]:

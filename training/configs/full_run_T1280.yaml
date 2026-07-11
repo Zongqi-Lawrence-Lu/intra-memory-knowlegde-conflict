@@ -3,8 +3,8 @@
 # checkpoint.num_checkpoint_slots / stability revision, applied identically here)
 # -- gpt2-small-openwebtext-T1280-shuffled hit its own irrecoverable loss spike
 # around step 17000-18000 (val_ppl ~80 -> ~4700-4900, never recovered). Only the
-# corpus (results/population_T1280.json's rescaled n_a/n_b, same entities/values/
-# vignettes) differs from the T=80 stable config. run_name changed
+# corpus (results/gpt2-small-openwebtext-T1280/population.json's rescaled n_a/n_b,
+# same entities/values/vignettes) differs from the T=80 stable config. run_name changed
 # (...-T1280-shuffled -> ...-T1280-stable) so resume:true has nothing from the
 # old, diverged run to silently pick up.
 #

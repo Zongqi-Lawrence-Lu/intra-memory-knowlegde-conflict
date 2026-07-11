@@ -91,17 +91,23 @@ T_CONDITIONS = {
     80: {
         "run_name": "gpt2-small-openwebtext-T80",
         "config": "training/configs/full_run_T80.yaml",
-        "population": "results/population.json",
+        # 2026-07-11: moved from results/population.json (which stays in place, but
+        # only as the pre-rescale master preprocess/rescale_population.py and
+        # preprocess/generate_vignettes.py read from -- T80 must not be an implicit
+        # default consumer of that top-level file, see
+        # memory/results_folder_scatter_cleanup_2026-07-11.md) into its own run
+        # folder, explicitly, matching T320/T1280's pattern exactly.
+        "population": "results/gpt2-small-openwebtext-T80/population.json",
     },
     320: {
         "run_name": "gpt2-small-openwebtext-T320",
         "config": "training/configs/full_run_T320.yaml",
-        "population": "results/population_T320.json",
+        "population": "results/gpt2-small-openwebtext-T320/population.json",
     },
     1280: {
         "run_name": "gpt2-small-openwebtext-T1280",
         "config": "training/configs/full_run_T1280.yaml",
-        "population": "results/population_T1280.json",
+        "population": "results/gpt2-small-openwebtext-T1280/population.json",
     },
 }
 

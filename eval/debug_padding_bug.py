@@ -36,7 +36,6 @@ from eval.probe_in_distribution import TARGET_KEYS, load_variants
 from training.config import TrainingConfig
 
 REPO_ROOT = Path(__file__).parent.parent
-DEFAULT_POPULATION_PATH = REPO_ROOT / "results" / "population.json"
 N_PROBES_PER_KEY = 4  # small: 4 * 7 relation types = 28 probes max
 
 
@@ -148,7 +147,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-name", required=True)
     parser.add_argument("--config", required=True)
-    parser.add_argument("--population", default=str(DEFAULT_POPULATION_PATH))
+    parser.add_argument(
+        "--population", required=True,
+        help="e.g. results/gpt2-small-openwebtext-T320/population.json -- required, not "
+             "defaulted (see memory/results_folder_scatter_cleanup_2026-07-11.md).",
+    )
     args = parser.parse_args()
 
     cfg = TrainingConfig.from_yaml(args.config)

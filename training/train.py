@@ -35,7 +35,6 @@ from training.logging_utils import setup_logging
 from training.model import build_model, count_parameters
 
 DTYPE_MAP = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}
-POPULATION_PATH = Path(__file__).parent.parent / "results" / "population.json"
 
 
 def set_seed(seed: int) -> None:
@@ -231,6 +230,12 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
     # docstring for why shuffle=True/overlapping=True breaks the position->step
     # mapping this depends on).
     if cfg.checkpoint.occurrence_log_path is not None:
+        if cfg.checkpoint.population_path is None:
+            raise ValueError(
+                "checkpoint.occurrence_log_path is set but checkpoint.population_path is not "
+                "-- compute_injection_steps needs this run's own population (not an implicit "
+                "default), set both explicitly in this run's config."
+            )
         if cfg.data.shuffle or cfg.data.overlapping:
             logger.warning(
                 "checkpoint.occurrence_log_path is set but data.shuffle/overlapping "
@@ -240,7 +245,7 @@ def train(cfg: TrainingConfig, smoke_test: bool = False, build_sampler=None) -> 
         else:
             cfg.checkpoint.injection_steps = compute_injection_steps(
                 cfg.checkpoint.occurrence_log_path,
-                POPULATION_PATH,
+                cfg.checkpoint.population_path,
                 block_size=cfg.model.n_positions,
                 batch_size=cfg.data.batch_size,
             )

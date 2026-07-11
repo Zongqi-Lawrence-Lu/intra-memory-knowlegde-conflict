@@ -66,7 +66,6 @@ from training.model import build_model
 
 REPO_ROOT = Path(__file__).parent.parent
 TEMPLATES_DIR = REPO_ROOT / "preprocess" / "data_pools" / "templates"
-DEFAULT_POPULATION_PATH = REPO_ROOT / "results" / "population.json"
 
 # Four extra name-bearing templates per relation, on top of the pool's own
 # first_mention (5 total). Hand-written by sampling preprocess/data_pools/
@@ -617,7 +616,12 @@ def main() -> None:
     parser.add_argument("--config", default=None, help="defaults to training/configs/<run-name>.yaml if present, else full_run.yaml")
     parser.add_argument("--checkpoint-step", type=int, default=None, help="defaults to the latest full checkpoint")
     parser.add_argument("--all-checkpoints", action="store_true", help="run against every full checkpoint on disk, not just one")
-    parser.add_argument("--population", default=str(DEFAULT_POPULATION_PATH))
+    parser.add_argument(
+        "--population", required=True,
+        help="e.g. results/gpt2-small-openwebtext-T320/population.json -- required, not "
+             "defaulted, so a run's T-condition can't be silently mismatched against another "
+             "T's population (see memory/results_folder_scatter_cleanup_2026-07-11.md).",
+    )
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--limit-entities", type=int, default=None, help="debug/smoke-test: only probe the first N entities")
     args = parser.parse_args()

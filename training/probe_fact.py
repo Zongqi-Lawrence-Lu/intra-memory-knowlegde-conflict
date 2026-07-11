@@ -101,7 +101,11 @@ def main() -> None:
     parser.add_argument("--entity-id", default=None, help="defaults to a random entity")
     parser.add_argument("--relation", default=None, help="pin a specific relation_key instead of a random fact")
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--population", default="results/population.json")
+    parser.add_argument(
+        "--population", required=True,
+        help="e.g. results/gpt2-small-openwebtext-T320/population.json -- required, not "
+             "defaulted (see memory/results_folder_scatter_cleanup_2026-07-11.md).",
+    )
     parser.add_argument("--num-distractors", type=int, default=5, help="background-fact only: random pool values to show rank/logprob against")
     parser.add_argument("--num-samples", type=int, default=1, help="number of random facts to probe (model is loaded once and reused)")
     args = parser.parse_args()

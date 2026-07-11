@@ -157,6 +157,14 @@ class CheckpointConfig:
     # injection_steps comes only from YAML (empty unless set explicitly), and the
     # dense cadence stays inert.
     occurrence_log_path: Optional[str] = None
+    # Companion to occurrence_log_path, required whenever that's set -- compute_injection_
+    # steps needs both. 2026-07-11: previously train.py hardcoded results/population.json
+    # (T80's population) here regardless of which T-condition was actually training, a
+    # latent bug (dormant only because no config currently sets occurrence_log_path) --
+    # see memory/results_folder_scatter_cleanup_2026-07-11.md. Each T's own config must
+    # set this explicitly alongside occurrence_log_path if that auto-derivation is ever
+    # turned on.
+    population_path: Optional[str] = None
     dense_interval_steps: int = 50
     dense_window_steps: int = 250  # +/- window around each injection step
 

@@ -10,6 +10,8 @@ A40 GPU, but we could upgrade to multiple GPU or A100 (80gb) if necessary. The m
 the cluster policy is 12 hours. I included a sample_sbatch.sbatch for sample header file, and the slurm 
 standard out should go into the slurm/ folder. It is advisable to ask for two times the time you anticipate
 the job would need, provided it is not over 12 hours. Use the epis conda environment for everything.
+Based on the current job, training GPT2-small shall use one single A100 (80gb). Unless the evaluation/inference
+is directly following training, a standalone inference job should use A40 gpu.
 
 3. There are three main stages that I think are needed. These are a very rough outline, and when ask you to
 run or build something, I will clearly indicate which phase we are on. 

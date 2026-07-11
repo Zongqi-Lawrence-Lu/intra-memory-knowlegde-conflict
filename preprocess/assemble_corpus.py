@@ -46,13 +46,11 @@ from preprocess.entities import PoolCycler
 from preprocess.scheduler import schedule_entity_occurrences
 
 REPO_ROOT = Path(__file__).parent.parent
-POPULATION_PATH = REPO_ROOT / "results" / "population.json"
 VIGNETTES_DIR = Path(__file__).parent / "data_pools" / "vignettes"
-OCCURRENCE_LOG_PATH = REPO_ROOT / "results" / "occurrence_log.json"
 DEFAULT_BACKBONE_PATH = REPO_ROOT / "data" / "raw" / "wikitext-103" / "wiki.train.txt"
 
 
-def load_population(population_path: Path = POPULATION_PATH) -> list[dict]:
+def load_population(population_path: Path) -> list[dict]:
     with open(population_path) as f:
         return json.load(f)
 
@@ -185,10 +183,10 @@ def assemble_from_wikitext_local(
     total_tokens: int,
     backbone_path: Path,
     out_dir: Path,
+    population_path: Path,
+    occurrence_log_path: Path,
     base_seed: int = 0,
     dtype: str = "uint16",
-    population_path: Path = POPULATION_PATH,
-    occurrence_log_path: Path = OCCURRENCE_LOG_PATH,
 ) -> None:
     """Local-file, two-pass backbone path -- kept for network-free dev/smoke testing
     at small token budgets (S1.1: WikiText-103 only has ~110M tokens total, a hard
@@ -252,11 +250,11 @@ def assemble_from_wikitext_local(
 def assemble_from_openwebtext_stream(
     total_tokens: int,
     out_dir: Path,
+    population_path: Path,
+    occurrence_log_path: Path,
     base_seed: int = 0,
     dtype: str = "uint16",
     chunk_bytes: int = DEFAULT_CHUNK_BYTES,
-    population_path: Path = POPULATION_PATH,
-    occurrence_log_path: Path = OCCURRENCE_LOG_PATH,
     chunk_iterator=None,
 ) -> None:
     """Single streaming pass over OpenWebText (S1.1, S1.7): supersedes the two-pass
@@ -414,7 +412,7 @@ def _finish(
     position_counter: int,
     occurrence_log: list[dict],
     missing_variant_events: int,
-    occurrence_log_path: Path = OCCURRENCE_LOG_PATH,
+    occurrence_log_path: Path,
 ) -> None:
     if missing_variant_events:
         print(
@@ -475,15 +473,16 @@ def main() -> None:
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
-        "--population-path", type=Path, default=POPULATION_PATH,
-        help="Defaults to results/population.json. Override for a T-sweep condition's own "
-             "rescaled population (preprocess/rescale_population.py) without touching the "
-             "default population file.",
+        "--population-path", type=Path, required=True,
+        help="e.g. results/gpt2-small-openwebtext-T320/population.json -- required, not "
+             "defaulted, so a T-sweep condition can't silently assemble against another "
+             "T's population (see memory/results_folder_scatter_cleanup_2026-07-11.md).",
     )
     parser.add_argument(
-        "--occurrence-log-path", type=Path, default=OCCURRENCE_LOG_PATH,
-        help="Defaults to results/occurrence_log.json. Override so a T-sweep condition's "
-             "assembly doesn't overwrite the default run's occurrence log.",
+        "--occurrence-log-path", type=Path, required=True,
+        help="e.g. results/gpt2-small-openwebtext-T320/occurrence_log.json -- required, not "
+             "defaulted, so a T-sweep condition's assembly can't silently overwrite another "
+             "run's occurrence log.",
     )
     parser.add_argument(
         "--backbone-cache-dir", type=Path, default=None,

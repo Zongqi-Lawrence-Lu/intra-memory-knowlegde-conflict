@@ -19,3 +19,5 @@ checkpoint/
 output/
 data/
 *log*
+recall_eval_*
+occurrence_log*

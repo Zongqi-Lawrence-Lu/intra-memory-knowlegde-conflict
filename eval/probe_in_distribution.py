@@ -39,7 +39,6 @@ from training.model import build_model
 
 REPO_ROOT = Path(__file__).parent.parent
 VIGNETTES_DIR = REPO_ROOT / "preprocess" / "data_pools" / "vignettes"
-DEFAULT_POPULATION_PATH = REPO_ROOT / "results" / "population.json"
 
 # Five relation types flagged weak under the template probe, plus two strong ones as
 # a sanity control (if in-distribution probing inflated everything indiscriminately,
@@ -147,7 +146,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-name", required=True)
     parser.add_argument("--config", required=True)
-    parser.add_argument("--population", default=str(DEFAULT_POPULATION_PATH))
+    parser.add_argument(
+        "--population", required=True,
+        help="e.g. results/gpt2-small-openwebtext-T320/population.json -- required, not "
+             "defaulted (see memory/results_folder_scatter_cleanup_2026-07-11.md).",
+    )
     parser.add_argument("--checkpoint-step", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=64)
     args = parser.parse_args()
