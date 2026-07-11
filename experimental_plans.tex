@@ -11,287 +11,8 @@
 \begin{document}
 \maketitle
 
-% Scientific design doc referenced by IMPLEMENTATION.md (engineering sequencing).
-% REVISION (2026-07-04): Section 1 rewritten from scratch, superseding the prior
-% single-fact/recency-bin design entirely (not appended alongside it). Key changes:
-%   (a) Recency dropped as an independent variable -- in from-scratch training,
-%       "late in the stream" is confounded with cosine-schedule LR decay, entangling
-%       recency with optimization dynamics rather than isolating exposure timing.
-%       Frequency (exposure count) is now the sole swept variable.
-%   (b) Corpus unit is now a full biography per entity, operationalized directly as
-%       Allen-Zhu & Li's bioS(N): every occurrence of an entity re-renders its entire
-%       biography from scratch (fresh template + sentence order), rather than a
-%       global first-mention/restatement-forever split.
-%   (c) Exactly one relation per entity is contested (two candidate values, A/B);
-%       all other attributes are single-valued background, reinforced for free
-%       whenever the entity's biography renders. Multiple simultaneous contested
-%       relations per entity were considered and rejected (S1.3): they couple two
-%       conflicts' exposure patterns through shared document instances, exactly the
-%       cross-relation entanglement the single-relation design avoids.
-%   (d) Total exposure budget T is fixed across the corpus; the swept quantity is
-%       the split (n_A, n_B) with n_A + n_B = T, so background/identity reinforcement
-%       is held constant and only the frequency gap varies.
-%   (e) Every entity has exactly 5 facts (1 contested + K=4 background relations),
-%       each always re-rendered per occurrence per (b) -- no separate anchor or
-%       other non-manipulated identity-only attribute.
-%   (f) Relation-type identity (which of the 14 types is contested, which 4 of the
-%       remaining 13 are background) is balanced by construction rather than via
-%       an explicit per-cell configuration table: contested type is crossed with
-%       split level through one shuffled replicate list (S1.2, S1.6), and
-%       background types follow deterministically via a fixed cyclic offset from
-%       the contested type -- both exactly balanced without a designed grid.
-%   (g) Document rendering is now LLM-authored, not mechanically assembled: an
-%       auxiliary LLM writes several whole-paragraph biography variants per
-%       (entity, side) directly from the 5 flat facts (S1.2, S1.4), superseding
-%       the per-relation-type first_mention/restatement template banks entirely.
-%       This reopens the single-token surface-form divergence guarantee of S1.3,
-%       which was construction-guaranteed under shared templates and is not
-%       automatically guaranteed under independently-authored free text -- flagged
-%       as not yet resolved (S1.3, S1.9) rather than silently assumed.
-%   (h) Corpus assembly built (S1.7): backbone + vignette occurrences interleaved at
-%       backbone line boundaries, each document EOS-delimited. Resolves (g)'s open
-%       question: recall scoring uses a separate fixed-template probe (the templates
-%       superseded for training text in (g) are repurposed for this), not training
-%       vignettes. Measured (not assumed) an injected-token floor of ~5.5M tokens at
-%       the proposed-default population/T/V -- total_tokens must sit at the upper end
-%       of S1.1's 10^8-10^9 range, not the lower end, for injected content to actually
-%       be a small fraction (S1.7 has the exact numbers). Also flagged: V=5 variants
-%       is very likely too few once T is fixed by the pilot -- revisit after S1.11,
-%       not before, since the right V depends on the pilot's T.
-% Not yet drafted: formal intra-memory-conflict definition; final T and split-level
-% values (pending the pilot in S1.11); prompting- and training-time (dedup/
-% reweighting) baseline classes. Section 2 (Baseline Methods) is unaffected by this
-% revision and unchanged below.
-% REVISION (2026-07-06): Optimization section (S1.5) batch_size raised 48 -> 192,
-% departing from S1.5's own Physics-of-LM-anchored value, for A100 GPU-utilization
-% reasons raised in a training-pipeline performance review: at batch=48/seq=512
-% with flash/SDPA attention already in use, an A100-80GB is deeply under-utilized
-% (order of single-digit GB of activation memory out of 80GB), which caps achieved
-% MFU well below the 178,000 tok/s reference throughput the 12h wall-clock budget
-% (S1.5) is based on -- that reference figure is itself measured with a fused
-% optimizer/torch.compile, neither of which this pipeline had until this revision
-% (see training/train.py, training/checkpoint.py). This is a deliberate, one-time
-% departure from "architecture and optimizer hyperparameters otherwise match
-% Allen-Zhu et al. for comparability" (S1.5) -- batch_size specifically no longer
-% matches, everything else in that sentence still does. Not validated against a
-% real GPU run (none available at the time of this revision); verify the 80GB
-% budget actually holds on the first real cluster job and back off if not.
-% lr/warmup_steps/max_steps are re-derived from the new batch_size, not left at
-% their old values, to hold two things fixed: total training tokens (2.5e9,
-% S1.1) and every interval's *token*-space cadence (warmup, checkpoint, eval).
-%   - max_steps: re-solved for 2.5e9 tokens at the new 98,304 tok/step (192*512),
-%     giving 25,425 (was 101,726 at 48*512=24,576 tok/step).
-%   - lr: 6e-4 -> 1.2e-3, sqrt-scaled (6e-4 * sqrt(192/48) = 6e-4*2), following
-%     Malladi et al. (2022)'s SDE-derived scaling rule for Adam-family
-%     optimizers under a batch-size change -- sqrt, not SGD's linear rule.
-%   - warmup_steps: 2000 -> 500 (exactly 2000/4), so warmup covers the same
-%     token budget (500*98,304 == 2000*24,576, exactly, since tok/step rose
-%     exactly 4x).
-%   - checkpoint sparse_interval_steps/dense_interval_steps/dense_window_steps
-%     and eval_interval_steps similarly divided by 4, for the same
-%     token-space-cadence reason (the 10-15-minute crash-loss bound itself is
-%     recomputed at the new tok/step against the same 178,000 tok/s reference,
-%     not just scaled by the batch-size ratio).
-% All other S1.5 content (architecture, AdamW betas/eps/weight-decay, cosine
-% schedule shape, bf16 precision) is unchanged.
-% STATUS (2026-07-05): vignette generation (S1.4) is IN PROGRESS, not complete --
-% 2,638/3,360 (entity, side) pairs have >=3 accepted variants; 722 remain (660 with 0
-% variants), left over from before the case-insensitive value-fidelity fix (S1.2) was
-% applied, killed mid-retry rather than run to completion. Resuming next session is
-% just re-running `python -m preprocess.generate_vignettes` -- it is resumable by
-% design (S1.4 Concurrency) and will skip the 2,638 already-complete pairs.
-% STATUS (2026-07-05, cont'd): WikiText-103 backbone downloaded for real
-% (data/raw/wikitext-103/, ~528MB train, 973,413 deduped lines; backbone.py's
-% load_dataset call needed a fix -- the bare "wikitext" HF repo id is deprecated,
-% now "Salesforce/wikitext"). Corpus assembler (S1.7) built and smoke-tested end to
-% end on real backbone + the partially-complete vignette bank at a small
-% total_tokens (dev-only; not representative of final corpus proportions, since the
-% injected-token floor is fixed regardless of total_tokens -- see S1.7). Full-scale
-% assembly should wait for (a) vignette generation to finish and (b) S1.11's pilot
-% to fix T/total_tokens, not run at dev scale again.
-% STATUS (2026-07-05, code review pass): assemble_corpus.py rewritten to stream
-% output to disk in two passes rather than holding the whole token stream in memory
-% (S1.7) -- would not have scaled to the real total_tokens target, caught before a
-% real run hit it. generate_vignettes.py: fixed --min-variants not actually reaching
-% the accept-threshold check (only affected the resumability skip-check before), and
-% asyncio.gather now uses return_exceptions=True so one task's unhandled error can't
-% abort the whole population-scale job. Re-verified the assembler's output is still
-% correct after the rewrite (same backbone token count, spot-checked decode).
-% STATUS (2026-07-05, cont'd): vignette regeneration retry completed: 3,208/3,360
-% pairs complete, 152 residual failures, 100% traced to civic_role_values (the
-% deferred full-phrase pool -- see S1.2's name-shaped-values bullet). Fixed and
-% regenerated civic_role_values (now name-shaped) and validate_pools.py passes.
-% Deliberately NOT regenerating the 152 affected vignette pairs yet (deferred, no
-% further generation API cost right now) -- they remain at 0-2 variants each until
-% that regeneration is explicitly requested.
-% STATUS (2026-07-05, cont'd): vignette regeneration for those 152 pairs was run;
-% 78 succeeded, 74 (57 unique entities) still failed, still 100% civic_role -- this
-% time because population.json had each entity's civic_role value frozen in from
-% the ORIGINAL population build (the old full-phrase pool), and regenerating the
-% pool file doesn't retroactively change already-assigned entity values.
-% MISTAKE, CAUGHT AND FIXED: a first repair attempt redrew civic_role values for
-% "any entity whose value isn't in the new pool" -- which is every entity that ever
-% used civic_role (600 total), not just the 57 broken ones, since old-pool and
-% new-pool content are essentially disjoint by construction. This silently
-% desynced population.json from ~543 entities' already-correct, already-generated
-% vignette text before being caught. Recovered from the full old/new value log
-% (every redraw had been printed before saving) rather than from a backup, since
-% none existed: reverted the 543 that should not have changed back to their
-% original values (spot-verified against their existing vignette text, 0
-% mismatches in a 15-entity sample), kept the fix only for the real 57. Their 114
-% vignette files (both sides each, since 40 of the 57 had one side already
-% "succeed" against the now-superseded value) were reset to empty pending
-% regeneration -- deliberately not regenerated in the same pass, per instruction
-% not to make further API calls during the recovery itself.
-% STATUS (2026-07-06): full-scale corpus assembly (job 952726,
-% slurm/assemble_full_openwebtext_corpus.sbatch) completed successfully, 2h27m,
-% no errors -- 2,514,194,374-token packed stream (134,400 occurrences over 1,680
-% entities), matching the S1.7 injected-token-floor estimate. Independently
-% verified after completion, not just trusted from the exit code: shard byte size
-% matches the reported token count exactly; every entity has exactly T=80 total
-% occurrences; all 6 split levels (\S\ref{sec:scale}) are exactly balanced at 280
-% entities each; every occurrence position is in-bounds; a decoded sample
-% (entity\_0468, side A) showed a clean backbone-article / \texttt{<|endoftext|>}
-% / vignette boundary with coherent, on-spec generated text. Corpus is good.
-% STATUS (2026-07-06, cont'd): first training submission (job 952727,
-% slurm/train\_full\_run.sbatch, depended on 952726) was OOM-killed by the
-% cgroup 9 minutes in, immediately after the ``torch.compile enabled'' log line
-% and before the first training-step log -- MaxRSS 66.77GB against the
-% requested 64GB. This was host RAM, not GPU VRAM (plain kernel \texttt{Killed}
-% plus a slurmstepd \texttt{oom\_kill} event, no CUDA OOM traceback), so it is a
-% different failure mode than the batch\_size=192/GPU-memory risk flagged in
-% \S\ref{sec:optimization} -- most likely \texttt{torch.compile}/Inductor's
-% autotuning-compilation memory spike on its first call. Fixed by raising
-% \texttt{slurm/train\_full\_run.sbatch}'s \texttt{--mem} 64gb $\to$ 128gb only
-% (the node class in use has $\sim$1TB RAM with ample unallocated headroom for a
-% single-GPU job) -- batch\_size, lr, warmup, and every other optimization
-% hyperparameter in \S\ref{sec:optimization} are unchanged. Resubmitted without a
-% SLURM dependency (the corpus already exists on disk and was verified above).
-% If this recurs at 128GB, the next step should be measuring
-% \texttt{torch.compile}'s actual host-memory footprint directly rather than
-% guessing again, before a further blind \texttt{--mem} increase.
-% STATUS (2026-07-06, cont'd): resubmission (job 952950, --mem=128gb) got past
-% the host-RAM OOM (MaxRSS 113GB, under the new 128GB request) but died 15
-% minutes in with a genuine \emph{CUDA} OOM in \texttt{loss.backward()}: tried to
-% allocate 9.21GiB for the compiled backward graph's logits buffer
-% (\texttt{(98304, 50264)} bf16 -- exactly batch\_size$\times$n\_positions
-% $=192\times512$ rows by the padded vocab), with only 8.16GiB free of 79.25GiB
-% and 71.05GB already resident. This is precisely the risk \S\ref{sec:optimization}
-% flagged as unvalidated (``whether 192 actually fits comfortably in 80GB... with
-% a fallback to a smaller batch (e.g. 96 or 128)... if not''), now confirmed: it
-% does not fit. Applying that pre-authorized fallback, not a fresh design
-% decision: \textbf{batch\_size: 192 $\to$ 128}
-% (\texttt{training/configs/full\_run.yaml}). Re-derived the same way as the
-% original 48$\to$192 revision, holding total training tokens
-% ($2.5\times10^9$) and every interval's token-space cadence fixed:
-% \begin{itemize}
-%   \item \texttt{lr}: $1.2\times10^{-3} \to 9.8\times10^{-4}$
-%     ($1.2\times10^{-3}\cdot\sqrt{128/192}$, same Malladi et al.\ sqrt rule).
-%   \item \texttt{warmup\_steps}: $500\to750$ ($750\times65{,}536 =
-%     500\times98{,}304$ tok/step exactly).
-%   \item \texttt{max\_steps}: $25{,}425\to38{,}146$ (re-solved for
-%     $2.5\times10^9$ tokens at the new $128\times512=65{,}536$ tok/step).
-%   \item \texttt{sparse\_interval\_steps}/\texttt{dense\_interval\_steps}/
-%     \texttt{dense\_window\_steps}: $1200/50/250 \to 1800/75/375$ (exact,
-%     $\times 1.5$ for the $98{,}304/65{,}536=1.5$ tok/step ratio).
-%   \item \texttt{eval\_interval\_steps}: $125\to188$ (188 not exact --
-%     $125\times1.5=187.5$ -- rounded up; negligible effect on eval cadence).
-% \end{itemize}
-% Expected peak GPU memory at batch=128 is $\approx(128/192)\times80.26\text{GB}
-% \approx 53.5$GB (the dominant OOM'd buffer scales linearly with batch\_size,
-% confirmed by the exact $98{,}304=192\times512$ row count above), leaving
-% $\approx$26GB of headroom under the 79.25GB device capacity -- not just barely
-% clearing the observed shortfall. \texttt{--mem=128gb} (previous fix) is
-% unchanged; host RAM was not the problem this time. Resubmitted as job 952981.
-% STATUS (2026-07-07): OpenWebText backbone tokenization cached once for reuse
-% across the $T$-sweep (job 969685, preprocess/cache\_backbone.py): 37 chunk
-% files, $\approx2{,}500{,}000{,}568$ backbone tokens, verified complete
-% (meta.json/state.json chunk counts match, log confirms completion) -- resumed
-% cleanly after an earlier timeout (job 961115, network-bound, killed at its 4h
-% limit $\approx$50\% done) via the checkpointed \texttt{state.json} design. The
-% completed T=80 baseline run's own eval (\S\ref{sec:eval}) came back
-% near-chance on the contested-recall metric (per-split-level accuracy
-% 0.46--0.56 across all 6 levels, 3/6 monotonicity violations, symmetry-at-balance
-% logit gap $-0.29$) -- empirical confirmation, not just the reasoned suspicion
-% of \S\ref{sec:seeds}, that $T=80$ undershoots the point where the frequency
-% signal is reliably learned; this is the direct motivation for re-running $T=80$
-% alongside $160/320/640$ (all four assembled fresh from the shared cache, for a
-% consistent corpus-construction code path across the whole sweep) rather than
-% reusing the existing \texttt{data/processed/full-run} corpus as-is. Also this
-% session: the checkpointing policy (\S\ref{sec:checkpointing}) and the
-% background-recall test (\S\ref{sec:eval}) were both revised -- see those
-% subsections' own revision notes for the details.
-% REVISION (2026-07-09): Both \S\ref{sec:optimization} and
-% \S\ref{sec:checkpointing} revised following two independent, irrecoverable
-% loss spikes during the $T$-sweep (\S\ref{sec:seeds}): the T=80 run trained
-% cleanly to $\sim$step 21{,}000 (val\_ppl $\sim$75--90) then spiked (loss
-% $\sim$4.3 $\to$ 8--10+, val\_ppl $\to$ thousands) around step
-% 21{,}000--23{,}000 and never recovered for the remaining $\sim$40\% of
-% training; T=1280 (identical hyperparameters, different corpus) hit the same
-% failure mode independently around step 17{,}000--18{,}000; T=320 alone
-% trained clean start to finish. Same architecture and optimizer settings
-% across all three, only the corpus differs -- this is a stochastic per-run
-% optimization instability, not a corpus- or $T$-specific one. Fixed in two
-% passes the same day:
-% \begin{enumerate}
-%   \item \textbf{Pipeline hardening} (\S\ref{sec:checkpointing},
-%     \texttt{training/checkpoint.py}, \texttt{training/config.py}'s new
-%     \texttt{StabilityConfig}, \texttt{training/train.py}): checkpointing
-%     moved from the single-overwriting-slot policy (2026-07-07 revision
-%     above) to $N=3$ rotating slots, so a late-discovered divergence can no
-%     longer destroy the only checkpoint on disk. A per-step loss-spike guard
-%     tracks a 50-step rolling mean of loss and skips the optimizer update
-%     (zero-grads instead of stepping, and excludes the spiked step from the
-%     rolling mean) whenever a step's loss exceeds $4\times$ that mean. A
-%     rollback mechanism reloads the last good rotating checkpoint once
-%     val\_ppl exceeds $2\times$ its best-seen value for 3 consecutive evals,
-%     decaying the learning rate by $0.7\times$ per rollback (floor 0.1 of
-%     base lr) and stopping training early once 5 rollbacks are exhausted,
-%     rather than looping forever. \texttt{training/finalize\_checkpoint.py}
-%     prunes the rotating slots back to the single best-by-val\_ppl checkpoint
-%     once training completes, before recall eval runs against it. A first
-%     attempt at this pass alone (rotation + spike-guard/rollback, no
-%     hyperparameter change) still diverged on a second T=80/T=1280 attempt,
-%     burning through all 5 rollbacks -- motivating (b).
-%   \item \textbf{Hyperparameter change} (\S\ref{sec:optimization}), applied on
-%     top of (a):
-%     \begin{itemize}
-%       \item \texttt{lr}: $9.8\times10^{-4} \to 6\times10^{-4}$, reverting to
-%         the standard GPT-2-small/GPT-3-125M literature value
-%         \citep{radford2019language, brown2020gpt3} rather than this
-%         project's own sqrt-scaled derivation from the original batch-size
-%         revisions above (\citet{malladi2022sdes}), which anchored $6\times
-%         10^{-4}$ at an unusually small reference batch (48 sequences) rather
-%         than the $\sim$0.5M-token/step scale that figure is normally quoted
-%         at -- i.e., the sqrt-rescaling chain compounded an already-mismatched
-%         starting point across two batch-size changes.
-%       \item \texttt{warmup\_steps}: $750 \to 2000$ ($\sim$2\% $\to$
-%         $\sim$5\% of \texttt{max\_steps}), extra stability margin.
-%       \item \texttt{grad\_clip}: $1.0 \to 0.5$; \texttt{eps}: (implicit
-%         AdamW default $10^{-8}$) $\to 10^{-6}$ -- per
-%         \citet{wortsman2024smallscale}'s small-scale reproduction of
-%         large-scale Transformer training instabilities, AdamW's default eps
-%         can let a layer's effective learning rate blow up once gradient RMS
-%         shrinks under high-LR instability; $\text{eps}=10^{-6}$ is their
-%         suggested guard, and $\text{grad\_clip}=0.5$ adds bf16 safety margin
-%         on top.
-%       \item \texttt{batch\_size} unchanged at 128: an empirical CUDA probe
-%         (\texttt{training/probe\_max\_batch\_size.py}) found the true max
-%         that fits on an A100-80GB is only 140 (83\% memory utilization, no
-%         margin left for a 12h run) -- not enough headroom over 128 to
-%         justify re-deriving lr/warmup/\texttt{max\_steps} for a batch-size
-%         change too.
-%     \end{itemize}
-% \end{enumerate}
-% All $T$-sweep conditions (T=80/320/1280) restarted from scratch under the
-% combined (a)+(b) pipeline; \texttt{run\_name} suffixed \texttt{-stable} so
-% \texttt{resume:true} cannot silently pick up a diverged run's checkpoint.
-% T=320 itself had not diverged, but is restarted anyway for hyperparameter
-% consistency across the sweep (explicit request) rather than leaving it on a
-% different lr/warmup/grad\_clip than T=80/T=1280. Old runs' metrics moved to
-% \texttt{results/*-stable-diverged-20260709/} rather than deleted, so each
-% \texttt{run\_name}'s \texttt{train\_metrics.jsonl} starts clean instead of
-% mixing old/new step numbers.
+% Methods reference for this project. Records final design decisions and their
+% rationale, not a change log -- see git history for how decisions evolved.
 
 \section{Model and Training Pipeline}
 
@@ -303,66 +24,50 @@
     1024 hidden dim, 16 heads, $\sim$345M) is reserved for confirmatory runs on
     conditions selected by the pilot in \S\ref{sec:seeds}.
   \item Tokenizer: pretrained GPT-2 BPE, used unmodified.
-  \item Context length: 512 tokens, reduced to 256 if corpus statistics support
-    it. Positional embeddings are trained from scratch, so context length is
-    not constrained by the pretrained GPT-2 checkpoint.
+  \item Context length: 512 tokens. Positional embeddings are trained from
+    scratch, so context length is not constrained by the pretrained GPT-2
+    checkpoint.
 \end{itemize}
 
 \subsection{Corpus}
 \label{sec:corpus}
 
 \begin{itemize}
-  \item \textbf{Backbone: OpenWebText \citep{Gokaslan2019OpenWebText}, superseding
-    WikiText-103.} WikiText-103 (deduplicated) tokenizes to only
-    $\approx$110M tokens total -- far short of the total-training-token target
-    below, and, since \texttt{assemble\_corpus.py} reads the backbone once
-    straight through rather than looping it, that number is a hard ceiling on
-    how much of it could ever be packed into the on-disk corpus. OpenWebText
-    has $\approx$9.04B tokens (9{,}035{,}582{,}198, per its published token
-    count), comfortably enough for a single, non-repeating pass at the token
-    budget below.
-  \item \textbf{Streamed and consumed in bounded chunks, not downloaded in
-    full.} OpenWebText is 38GB of raw text; the corpus this project actually
-    needs (\S\ref{sec:scale} below) is a fraction of that. The backbone loader
-    (\texttt{preprocess/backbone\_openwebtext.py}) pulls documents from the
-    \texttt{Skylion007/openwebtext} HF dataset via
-    \texttt{datasets.load\_dataset(..., streaming=True)}, buffers raw text
-    in memory only until a chunk boundary (default 2GB of accumulated text,
-    configurable) is reached, hands that chunk to the assembler for
-    tokenizing and packing (\S\ref{sec:assembly}), then discards the buffer
-    and pulls the next chunk -- nothing beyond one chunk's raw text is ever
-    held at once, and no persistent local copy of the dataset is written to
-    disk. This is a storage-constraint requirement, not a performance
-    optimization: the download must happen at run time, inside the
-    assembly/training job itself, never as a separate pre-staged local
-    dataset.
+  \item \textbf{Backbone: OpenWebText} \citep{Gokaslan2019OpenWebText},
+    $\approx$9.04B tokens, comfortably large enough for a single non-repeating
+    pass at the token budget below.
+  \item \textbf{Streamed and consumed in bounded chunks, never downloaded in
+    full}: a storage-constraint requirement, not a performance optimization.
+    The backbone loader (\texttt{preprocess/backbone\_openwebtext.py}) pulls
+    documents from the \texttt{Skylion007/openwebtext} HF dataset via
+    \texttt{datasets.load\_dataset(..., streaming=True)}, buffers raw text in
+    memory only until a chunk boundary (default 2GB, configurable) is reached,
+    hands that chunk to the assembler for tokenizing and packing
+    (\S\ref{sec:assembly}), then discards the buffer -- no more than one
+    chunk's raw text is held at once, and no persistent local copy of the
+    dataset is written to disk.
   \item Injected data: synthetic biography documents, one per entity
     (\S\ref{sec:entity}), inserted at randomly scheduled positions in the
     backbone token stream (\S\ref{sec:scheduler}).
-  \item Independent variable: exposure count only. Each entity has exactly one
-    contested relation with two candidate values $A$ and $B$; the swept
-    quantity is the split $(n_A, n_B)$ of a fixed total exposure budget $T$
-    between the two sides (\S\ref{sec:scheduler}, \S\ref{sec:scale}).
-    \textbf{Recency is not tracked or manipulated} in this design: in a
-    from-scratch training run, an occurrence's position late in the stream is
-    confounded with the cosine LR schedule's decay toward that point, so
-    "recency" as previously defined would have been entangling exposure
-    timing with optimization dynamics rather than isolating it. This is a
-    deliberate scope decision, not an oversight, and supersedes every
-    recency-bin mechanism in the prior design.
+  \item \textbf{Independent variable: exposure count only.} Each entity has
+    exactly one contested relation with two candidate values $A$ and $B$; the
+    swept quantity is the split $(n_A, n_B)$ of a fixed total exposure budget
+    $T$ between the two sides (\S\ref{sec:scheduler}, \S\ref{sec:scale}).
+    Recency is not tracked or manipulated: in a from-scratch training run, an
+    occurrence's position late in the stream is confounded with the cosine LR
+    schedule's decay toward that point, so treating recency as a variable
+    would entangle exposure timing with optimization dynamics.
   \item \textbf{Token budget: fixed at $2.5\times10^9$ total training tokens},
     the Chinchilla-optimal point for a 124M-parameter model
-    \citep{hoffmann2022chinchilla} at $\approx$20 tokens/parameter --
-    superseding the earlier $\mathcal{O}(10^8\text{--}10^9)$ placeholder range
-    now that a concrete backbone (OpenWebText) can actually support it. Per
+    \citep{hoffmann2022chinchilla} at $\approx$20 tokens/parameter. Per
     \S\ref{sec:corpus-vs-training-tokens}'s distinction, this is the total
     training-token figure (batch $\times$ context $\times$ steps,
-    \S\ref{sec:optimization}), not necessarily the on-disk corpus size: since
+    \S\ref{sec:optimization}), not necessarily the on-disk corpus size; since
     OpenWebText has enough unique tokens to cover $2.5\times10^9$ in a single
-    pass with no repetition, \texttt{total\_tokens} (on-disk, S1.7) is set
-    equal to the training-token target rather than smaller, so the run needs
-    zero epochs of repetition over its own backbone -- the cleanest point on
-    \citet{muennighoff2023scaling}'s curve.
+    pass with no repetition, \texttt{total\_tokens} (on-disk, \S\ref{sec:assembly})
+    is set equal to the training-token target, so the run needs zero epochs
+    of repetition over its own backbone -- the cleanest point on
+    \citet{muennighoff2023scaling}'s scaling curve.
 \end{itemize}
 
 \subsection{Entity and Document Construction}
@@ -372,196 +77,132 @@
   \item \textbf{Entity schema}: each synthetic entity is a tuple
     $(\text{name}, \text{contested}, \{\text{background}_j\})$. \emph{Name}
     is drawn from a globally unique entity-name pool, disjoint from every
-    other human-name-shaped value pool. \emph{Contested} is one relation
-    type (relation-type assignment, below) assigned two candidate values
-    $\text{val}_A, \text{val}_B$ from that relation's value pool and a split
-    $(n_A, n_B)$, $n_A + n_B = T$ (\S\ref{sec:scheduler}). $\{\text{background}_j\}$
-    is a fixed-size set of $K=4$ further relation-type/value pairs, each
-    assigned a single value that never varies -- these give the biography a
-    natural bioS-parallel length (1 contested $+$ 4 background $=$ 5
-    attributes per entity) and reinforce the entity's identity across
-    occurrences: background content is restated every time \emph{any}
+    other human-name-shaped value pool. \emph{Contested} is one relation type
+    assigned two candidate values $\text{val}_A, \text{val}_B$ from that
+    relation's value pool and a split $(n_A, n_B)$, $n_A + n_B = T$
+    (\S\ref{sec:scheduler}). $\{\text{background}_j\}$ is a fixed-size set of
+    $K=4$ further relation-type/value pairs, each assigned a single value
+    that never varies. Together these give each biography 5 attributes
+    (1 contested $+$ 4 background), paralleling Allen-Zhu \& Li's bioS
+    structure. Background content is restated every time \emph{any}
     occurrence of the entity's biography renders (\S\ref{sec:scheduler}), so
     its exposure count is exactly $T$, not independently controlled.
-  \item \textbf{Relation-type assignment, balanced by construction, not a
-    designed grid}: entities are compiled directly from the name/value pools
-    rather than populated into an explicit per-cell configuration table, but
-    usage is still exactly balanced, not independently random per entity:
-    \begin{itemize}
-      \item \emph{Contested type}: one shuffled list of (relation type,
-        split level) pairs is built, each of the 14 $\times$ (number of
-        split levels) combinations repeated the same replicate count
-        (\S\ref{sec:scale}); one pair is assigned per entity by walking the
-        shuffled list. This guarantees every relation type is used as the
-        contested type the same number of times overall, and the same
-        number of times within every split level, so relation-type identity
-        cannot confound the frequency-gap comparison.
-      \item \emph{Background types}: a fixed cyclic offset from the
-        contested type -- given a fixed ordering of the 14 relation types,
-        an entity whose contested type sits at position $c$ takes background
-        types at positions $c{+}1, c{+}2, c{+}3, c{+}4$ (mod 14). Because the
-        contested-type assignment above is exactly balanced, this offset
-        rule makes every relation type's background-usage count exactly
-        balanced too, with no separate randomization needed. (This does make
-        ``contested $=X$'' and ``background includes $X{+}1..X{+}4$''
-        co-occur deterministically rather than just typically -- acceptable
-        since background identity is reinforcement, not itself an analyzed
-        variable.)
-      \item \emph{Values}: for a given relation type, values are drawn by
-        walking a shuffled copy of that relation's value pool in order,
-        reshuffling and starting a new lap once the pool is exhausted, so
-        usage counts across the pool differ by at most one rather than
-        drifting under i.i.d.\ resampling. The contested pair's
-        $\text{val}_A, \text{val}_B$ are drawn this way and checked for
-        surface-form divergence (\S\ref{sec:divergence}); a failing pair
-        advances to the next pool position rather than resampling blind.
-    \end{itemize}
-  \item \textbf{One contested relation per entity, not several}: an earlier
-    version of this design considered giving a single entity multiple
-    simultaneously-contested relations, reasoning that it would amortize the
-    name-introduction cost further. This was rejected: whenever the
+  \item \textbf{Relation-type assignment, balanced by construction}: one
+    shuffled list of (relation type, split level) pairs is built, each of the
+    14 $\times$ (number of split levels) combinations repeated the same
+    replicate count (\S\ref{sec:scale}); one pair is assigned per entity by
+    walking the shuffled list, guaranteeing every relation type is used as
+    the contested type equally often, both overall and within every split
+    level. Background types follow a fixed cyclic offset from the contested
+    type: given a fixed ordering of the 14 relation types, an entity whose
+    contested type sits at position $c$ takes background types at positions
+    $c{+}1, c{+}2, c{+}3, c{+}4$ (mod 14), which balances background-type
+    usage without separate randomization. Values are drawn by walking a
+    shuffled copy of the relevant pool in order, reshuffling and starting a
+    new lap once exhausted, so usage counts differ by at most one; the
+    contested pair's $\text{val}_A, \text{val}_B$ are drawn this way and
+    checked for surface-form divergence (\S\ref{sec:divergence}) before being
+    accepted.
+  \item \textbf{One contested relation per entity, not several}: whenever an
     entity's biography renders to advance one contested relation's exposure
-    count, every other attribute in that same instance -- including any other
-    contested relation -- is restated too, coupling the two conflicts'
-    exposure patterns through shared document instances. That reintroduces,
-    across two \emph{contested} relations, exactly the cross-relation
-    entanglement that keeping relations independent was meant to avoid, and
-    is worse than the analogous issue for background relations because both
-    dependent variables (which side wins for each relation) would become
-    correlated by construction. One contested relation per entity keeps each
-    conflict pair's exposure pattern clean.
+    count, every other attribute in that instance is restated too. Allowing
+    multiple simultaneously-contested relations per entity would couple
+    their exposure patterns through shared document instances, correlating
+    which side wins across relations by construction. A single contested
+    relation per entity keeps each conflict pair's exposure pattern clean.
   \item \textbf{Relation-type inventory} (14 types, spanning affiliation,
     fixed life-event, and ongoing-state semantics so findings are not an
     artifact of one relation's surface statistics): alma mater; employer;
-    birthplace; current residence (distinct value
-    space from birthplace); award or honor received; authored work or
-    invention (title of book/patent/device); professional or hobbyist
-    affiliation (society, guild, club); field of expertise or specialization;
-    mentor or doctoral advisor (named individual, drawn from a name pool
-    disjoint from all entity names); primary funding source or grant-making
-    body; professional license or certification held; publication venue
-    (journal or imprint); civic or volunteer organization; working or
-    professional language. Each relation type has its
-    own value pool, checked against named entities in WikiText-103 and against every other
-    value pool. \textbf{Empirically, only 7 of these 14 reach reliable recall}
-    at the trained checkpoint; intervention experiments restrict the
+    birthplace; current residence (distinct value space from birthplace);
+    award or honor received; authored work or invention; professional or
+    hobbyist affiliation; field of expertise; mentor or doctoral advisor
+    (named individual, drawn from a name pool disjoint from all entity
+    names); primary funding source; professional license or certification;
+    publication venue; civic or volunteer organization; working or
+    professional language. Each relation type has its own value pool,
+    checked against named entities in WikiText-103 and against every other
+    value pool. \textbf{Empirically, only 7 of these 14 reach reliable
+    recall} at the trained checkpoint; intervention experiments restrict the
     contested-relation-type inventory to that subset
     (\S\ref{sec:relation-restriction}).
   \item \textbf{Value-pool reuse policy}: a value may be reused across
-    different entities if it is not itself shaped like a human name
-    (institution, place, award, license, venue, and similar values are drawn
-    from finite pools and may repeat across entities, matching real-corpus
-    statistics). Any value that is itself a person's name -- the entity's own
-    name, or the mentor/advisor relation's value -- is drawn from a globally
-    unique pool and never reused across entities. The entity-name pool and
-    every other human-name-shaped value pool are each constructed as a
-    separate bank (e.g., via a dedicated auxiliary-LLM call per pool) and
-    checked for mutual disjointness.
+    entities if it is not itself shaped like a human name (institution,
+    place, award, license, venue values are drawn from finite pools and may
+    repeat, matching real-corpus statistics). Any value that is itself a
+    person's name -- the entity's own name, or the mentor/advisor relation's
+    value -- is drawn from a globally unique pool and never reused. The
+    entity-name pool and every other human-name-shaped value pool are each a
+    separate bank, checked for mutual disjointness.
   \item \textbf{Document rendering}: LLM-authored, not mechanically assembled
     from templates. Operationalized as bioS(N) in spirit
-    \citep{allenzhu2023physics} -- a full biography per (entity, side) rather
-    than a global "first mention" elsewhere in the corpus -- but the text
-    itself is written by an auxiliary LLM (\S\ref{sec:generation}) given the
-    entity's name and its 5 facts (contested relation at one specific side,
-    plus all $K$ background relations) handed over \emph{flat}: the prompt
-    gives no indication that one fact is contested, so the model has no
-    opportunity to hedge, editorialize, or otherwise write differently about
-    it than about an ordinary background fact. One call per (entity, side)
-    produces $V$ independent variants of a short, coherent paragraph stating
-    all 5 facts (\S\ref{sec:generation} for the exact prompt and $V$'s
-    default). This replaces the prior first\_mention/restatement mechanical
-    split entirely -- there is no separate template bank per relation type,
-    and no notion of one attribute "opening" the instance while others are
-    "restated"; the model composes the whole paragraph, choosing its own
-    structure and word order freely each variant.
+    \citep{allenzhu2023physics} -- a full biography per (entity, side) -- but
+    the text itself is written by an auxiliary LLM (\S\ref{sec:generation})
+    given the entity's name and its 5 facts (contested relation resolved to
+    one side, plus all $K$ background relations) handed over \emph{flat}: the
+    prompt gives no indication that one fact is contested, so the model has
+    no opportunity to hedge or write differently about it than about an
+    ordinary background fact. One call per (entity, side) produces $V$
+    independent variants of a short, coherent paragraph stating all 5 facts
+    (\S\ref{sec:generation}). There is no template bank per relation type and
+    no first-mention/restatement split; the model composes the whole
+    paragraph, choosing its own structure and word order freely each variant.
   \item \textbf{Value fidelity is the one hard constraint on that freedom}:
     every fact's value must appear verbatim in the generated text (enforced
-    by prompt instruction, \S\ref{sec:generation}, and checked post-hoc --
-    a variant where the exact string cannot be located is rejected and
-    regenerated), because per-fact recall (\S\ref{sec:eval}) is scored by
-    locating that exact string in the rendered text and reading the model's
-    probability at that point. A paraphrased-away value (e.g. "a coastal
-    town" instead of "Aldergrove") leaves nothing to score. Everything else
-    about the paragraph -- structure, sentence count, which fact leads -- is
-    left to the model's discretion. The post-hoc check is
-    case-\emph{insensitive}: a real common-noun value (e.g.\ a
-    \texttt{field\_expertise} term like "Paleoclimatology") is reliably
-    case-folded to lowercase mid-sentence by a fluent writer, unlike the
-    invented proper-noun values (places, institutions, people), which keep
-    their capitalization. Exact case was never the actual requirement --
-    only that the value's position in the text is findable for scoring --
-    so case is ignored rather than added as a second name-shaping
-    constraint on top of \S\ref{sec:entity}'s existing one. At population
-    scale, the pre-fix exact-case check caused a $\sim$28\% total-failure
-    rate (0 usable variants after all retries), concentrated in exactly the
-    entities carrying a \texttt{field\_expertise} fact -- diagnosed and
-    fixed via the resumable batch run, not caught by the single-example
-    pilot (\S\ref{sec:generation}, which happened not to include that
-    relation type).
-  \item \textbf{Values must be name-shaped, not full descriptive phrases}:
-    piloting the vignette prompt surfaced that a fluent LLM writer reliably
-    keeps short, name-shaped values verbatim (a place, an award, a society
-    name) but naturally rewords a full descriptive clause into different
-    prose -- e.g. "a senior analyst at Ashgrove Dynamics" became "works at
-    Ashgrove Dynamics as a senior analyst," silently breaking value fidelity
-    above. \texttt{alma\_mater\_values}, \texttt{employer\_role\_values}, and
-    \texttt{civic\_role\_values} were shortened to bare institution/
-    organization names for this reason (\S\ref{sec:generation});
-    \texttt{civic\_role\_values} was the last holdout (originally deferred
-    rather than fixed alongside the other two) and its full-phrase shape
-    (e.g.\ "board member of X") was confirmed, not just suspected, as the
-    sole cause of a 152/3{,}360-pair (4.5\%) vignette generation failure
-    cluster at population scale before being fixed. Any future value pool
-    must be name-shaped for the same reason, not merely fictional.
+    by prompt instruction and checked post-hoc, \S\ref{sec:generation}),
+    because per-fact recall (\S\ref{sec:eval}) is scored by locating that
+    exact string and reading the model's probability at that point. The
+    post-hoc check is case-\emph{insensitive}: real common-noun values
+    (e.g.\ a \texttt{field\_expertise} term) are reliably case-folded
+    mid-sentence by a fluent writer, unlike invented proper-noun values,
+    which keep their capitalization; exact case was never the actual
+    requirement, only that the value's position in the text is findable for
+    scoring.
+  \item \textbf{Values must be name-shaped, not full descriptive phrases}: a
+    fluent LLM writer reliably keeps short, name-shaped values verbatim (a
+    place, an award, a society name) but naturally rewords a full descriptive
+    clause into different prose (e.g.\ ``a senior analyst at Ashgrove
+    Dynamics'' becomes ``works at Ashgrove Dynamics as a senior analyst''),
+    silently breaking value fidelity. \texttt{alma\_mater\_values},
+    \texttt{employer\_role\_values}, and \texttt{civic\_role\_values} are
+    accordingly shortened to bare institution/organization names. Any future
+    value pool must be name-shaped for the same reason, not merely
+    fictional.
   \item \textbf{Variant choice is round-robin, not resampled}: at each
     occurrence event (\S\ref{sec:scheduler}), one of that side's
     pre-generated variants is used, drawn without repetition until all have
-    been used once, then reshuffled -- the same discipline as the value
-    assignment above, applied here to variant choice rather than fact
-    content, so an entity's occurrences do not reuse the same paragraph
-    back-to-back purely by chance. State is kept per entity, persisting
-    across that entity's occurrence events, not reset per instance.
+    been used once, then reshuffled, so an entity's occurrences do not reuse
+    the same paragraph back-to-back purely by chance. State is kept per
+    entity, persisting across that entity's occurrence events.
   \item \label{sec:variants-per-side} \textbf{Total variants per entity fixed
-    at 8, allocated unevenly across sides via \texttt{variants\_per\_side}
-    (\texttt{preprocess/scheduler.py})} -- superseding a flat $V$ split
-    evenly (or near-evenly) between side $A$ and side $B$. Given the
-    entity's own $(n_A, n_B)$ (\S\ref{sec:scale}), $v_B = \max(1,
-    \mathrm{round}(8 \cdot n_B / (n_A{+}n_B)))$ and $v_A = 8 - v_B$: the
-    side with more scheduled occurrences gets proportionally more fresh
-    material before round-robin repeats kick in, rather than every entity
-    receiving the same 4/4 (or similar) split regardless of how lopsided its
-    own exposure gap is. At the balanced split $(40,40)$ this still gives
-    $(4,4)$; at every split from $(68,12)$ onward the low side floors to a
-    single variant, which is both the proportionally-implied allocation and
-    the practical minimum (a side that occurs at all needs at least one
-    usable paragraph). Combined with $T=80$ (\S\ref{sec:scale}), most
-    occurrences necessarily reuse a small number of paragraphs many times
-    over -- an explicit, accepted design choice (\S\ref{sec:assembly}), not
-    an oversight.
-  \item \textbf{Resolved: recall scoring is decoupled from training text}
-    (was flagged here as an open question; see \S\ref{sec:assembly}).
-    \S\ref{sec:divergence}'s single-token surface-form divergence guarantee
-    was construction-guaranteed under shared templates (side $A$ and side
-    $B$ were identical text except at the value); independently-authored
-    free-text vignette variants have no such guarantee. Per-fact recall
-    (\S\ref{sec:eval}) is scored on a separate, fixed template-based probe,
-    not on training vignettes -- \S\ref{sec:assembly} has the full
-    resolution.
+    at 8, allocated unevenly across sides} via \texttt{variants\_per\_side}
+    (\texttt{preprocess/scheduler.py}). Given the entity's own $(n_A, n_B)$
+    (\S\ref{sec:scale}), $v_B = \max(1, \mathrm{round}(8 \cdot n_B /
+    (n_A{+}n_B)))$ and $v_A = 8 - v_B$: the side with more scheduled
+    occurrences gets proportionally more fresh material before round-robin
+    repeats kick in. At the balanced split $(40,40)$ this gives $(4,4)$; at
+    every split from $(68,12)$ onward the low side floors to a single
+    variant. Combined with $T=80$ (\S\ref{sec:scale}), most occurrences
+    necessarily reuse a small number of paragraphs many times over -- an
+    explicit, accepted design choice (\S\ref{sec:assembly}).
+  \item \textbf{Recall scoring is decoupled from training text}: side $A$
+    and side $B$ training text are independently LLM-authored free text with
+    no common stem, so \S\ref{sec:divergence}'s single-token surface-form
+    divergence guarantee (construction-guaranteed under shared templates)
+    does not carry over. Per-fact recall (\S\ref{sec:eval}) is instead scored
+    on a separate, fixed template-based probe, not on training vignettes --
+    \S\ref{sec:assembly} has the full resolution.
 \end{itemize}
 
 \subsection{Pool and Vignette Generation}
 \label{sec:generation}
 
-Every name/value pool referenced in \S\ref{sec:entity}, and every entity's biography
-text itself (\S\ref{sec:entity}, document rendering), is produced by an auxiliary LLM
-(gpt-4o-mini via the OpenAI API, switched from GPT-4.1 on cost grounds -- $\sim$13x
-cheaper on both input and output at standard rates, and neither pool/template phrasing
-nor vignette-writing at this scale needs GPT-4.1-level capability) rather than
-hand-authored, so pool/vignette content does not itself encode the experimenters'
-assumptions about frequency. Pool generation uses
-one meta-prompt per pool (15: the entity-name and mentor-name pools, and thirteen
-relation-type value pools; Table~\ref{tab:pools}), substituting only a category
-description and a target count into an otherwise fixed template:
+Every name/value pool referenced in \S\ref{sec:entity}, and every entity's
+biography text itself, is produced by an auxiliary LLM (gpt-4o-mini via the
+OpenAI API) rather than hand-authored, so pool/vignette content does not
+itself encode the experimenters' assumptions about frequency. Pool generation
+uses one meta-prompt per pool (15: the entity-name and mentor-name pools, and
+thirteen relation-type value pools; Table~\ref{tab:pools}), substituting only
+a category description and a target count into an otherwise fixed template:
 
 \begin{quote}\small\ttfamily
 Generate \{n\} distinct entries for this category: \{description\}\newline
@@ -571,11 +212,10 @@ distinctive first word per entry. [Do not repeat: \{already-used entries\}.]\new
 Output ONLY a JSON array of exactly \{n\} strings.
 \end{quote}
 
-Vignette generation (superseding the prior per-relation-type
-first\_mention/restatement template meta-prompt, S1 revision (g)) uses one call per
-(entity, side): the entity's name and its 5 facts (contested relation resolved to that
-side, plus all $K$ background relations) are substituted flat into a fixed template,
-with no indication that any one fact is contested:
+Vignette generation uses one call per (entity, side): the entity's name and
+its 5 facts (contested relation resolved to that side, plus all $K$
+background relations) are substituted flat into a fixed template, with no
+indication that any one fact is contested:
 
 \begin{quote}\small\ttfamily
 Write a short biography of a fictional person for a synthetic training corpus.\newline
@@ -595,41 +235,36 @@ Output ONLY a JSON array of exactly \{n\_variants\} strings, one full paragraph 
 variant.
 \end{quote}
 
-\textbf{Generation procedure (pools)}: requests are issued in batches rather than one
-call per pool, each batch sized at $\lceil 1.2 \times \text{remaining}\rceil$ (a 20\%
-leeway over the strict remaining count, to absorb rejected duplicate/invalid entries
-without a guaranteed extra round-trip) and capped at 150 entries per call, bounding
-single-completion length; failed calls retry up to 5 times with exponential backoff.
-A post-generation cleaning pass removes exact duplicates (case/whitespace-normalized),
-malformed entries (wrong word count, trailing punctuation, LLM refusal artifacts), and,
-for name pools, entries not shaped like "Firstname Lastname," before a pool is
-accepted; the cross-pool and WikiText-103 disjointness checks of \S\ref{sec:entity} run
-afterward, on the cleaned pools.
+\textbf{Generation procedure (pools)}: requests are issued in batches, each
+sized at $\lceil 1.2 \times \text{remaining}\rceil$ (20\% leeway to absorb
+rejected duplicate/invalid entries without a guaranteed extra round-trip) and
+capped at 150 entries per call; failed calls retry up to 5 times with
+exponential backoff. A post-generation cleaning pass removes exact
+duplicates, malformed entries, and, for name pools, entries not shaped like
+``Firstname Lastname''; the cross-pool and WikiText-103 disjointness checks of
+\S\ref{sec:entity} run afterward, on the cleaned pools.
 
-\textbf{Generation procedure (vignettes)}: one call per (entity, side), requesting
-that side's target variant count (\texttt{v\_a} or \texttt{v\_b} from
-\S\ref{sec:entity}'s \texttt{variants\_per\_side} -- 8 total per entity, split
-unevenly across sides in proportion to $(n_A, n_B)$, not a flat $V$ for both sides
-as in the superseded design); sampled at a moderately elevated
-temperature (higher than the near-deterministic pool/template calls) so the
-$V$ variants are genuinely structurally distinct rather than near-duplicates. Each
-returned variant is checked post-hoc for the value-fidelity requirement above (exact
-substring match for every one of the 5 values); a variant failing this check is
-dropped and the call retried up to a bounded number of attempts before surfacing an
-error rather than silently accepting a variant nothing can be scored against.
+\textbf{Generation procedure (vignettes)}: one call per (entity, side),
+requesting that side's target variant count
+(\texttt{v\_a}/\texttt{v\_b} from \S\ref{sec:entity}'s
+\texttt{variants\_per\_side}), sampled at a moderately elevated temperature
+(higher than the near-deterministic pool/template calls) so the $V$ variants
+are genuinely structurally distinct. Each returned variant is checked
+post-hoc for value fidelity (exact substring match for every one of the 5
+values); a failing variant is dropped and the call retried up to a bounded
+number of attempts. Value pools must be name-shaped (not full descriptive
+phrases) for this check to hold reliably -- a lesson learned from a
+population-scale generation pass, where one full-phrase pool
+(\texttt{civic\_role\_values}, e.g.\ ``board member of X'') was the sole
+cause of a small cluster of vignette-generation failures, fixed by shortening
+that pool to bare organization names.
 
-\textbf{Concurrency}: at population scale ($\sim$1{,}680 entities $\times$ 2 sides
-$=$ 3{,}360 calls) requests are issued concurrently (async, bounded by a semaphore)
-rather than one at a time, with a conservative default concurrency cap (10
-in-flight requests) since actual account-level rate limits are not known in advance;
-per-request exponential backoff handles transient/rate-limit errors without the whole
-job failing on one throttled call. The run is resumable per entity -- an
-(entity\_id, side) pair already written to disk is skipped -- so a job that
-stops partway (rate-limit exhaustion, crash, or a deliberate stop) restarts without
-redoing completed work, per CLAUDE.md \S5's restart-safety requirement for
-long-running jobs. \textbf{As of this revision the run is incomplete} -- see the
-STATUS note at the top of this file for the exact counts; resuming is just
-re-invoking the same command.
+\textbf{Concurrency}: at population scale ($\sim$1{,}680 entities $\times$ 2
+sides $=$ 3{,}360 calls) requests are issued concurrently (async, bounded by
+a semaphore, default cap 10 in-flight), with per-request exponential backoff
+for transient/rate-limit errors. The run is resumable per entity -- an
+(entity\_id, side) pair already written to disk is skipped -- per CLAUDE.md
+\S5's restart-safety requirement for long-running jobs.
 
 \begin{table}[h]
 \centering\small
@@ -666,65 +301,50 @@ these 14 relation types at random (\S\ref{sec:entity}), so population size
 Per-fact recall (\S\ref{sec:eval}) is scored at a single token to avoid a
 length confound: comparing joint log-probability across candidate values of
 differing token count penalizes the longer candidate independent of any
-frequency effect (fewer multiplied sub-unity terms yield a higher joint
-log-probability). Scoring at the first token where two candidate values
+frequency effect. Scoring at the first token where two candidate values
 diverge avoids this, provided two requirements are enforced at generation
-time rather than assumed:
+time:
 
 \begin{itemize}
   \item \textbf{Construction}: templates are authored so no shared filler
     token sits between the template stem and the value -- the token stream
-    diverges at the value itself, not several tokens into it.
+    diverges at the value itself.
   \item \textbf{Verification}: checked per rendered context, not per bare
-    string, since BPE assigns a different token to the same word depending on
-    leading-space / sentence-initial position (e.g., mid-sentence
-    ``\texttt{ Meridian}'' vs.\ sentence-initial ``\texttt{Meridian}'' in a
-    subject-first paraphrase).
+    string, since BPE assigns a different token to the same word depending
+    on leading-space / sentence-initial position.
 \end{itemize}
 
-An earlier version of this check verified every value against every other
-value in the same relation-type pool -- an $O(n^2)$ requirement that,
-empirically, rejected an unworkable fraction of a pool once $n$ grew into the
-hundreds (a 150-entry pool lost 15--70\% per round; the 1200-entry
-\texttt{mentor\_names} pool lost 58\%), stronger than the science needs. Under
-the single-contested-relation-per-entity design (\S\ref{sec:entity}), this is
-even more clearly true than before: exactly one pair of values (val$_A$,
-val$_B$) is ever directly compared for a given entity, so verification is
-three checks applied on demand, not a pool-wide pre-pass:
+Verification is three on-demand checks, applied to the single contested pair
+assigned to an entity, rather than an $O(n^2)$ pairwise pass over the whole
+value pool (an earlier, stricter version of this check rejected an
+unworkable fraction of large pools):
 \begin{itemize}
   \item[(a)] \textbf{On-demand pairwise divergence}, applied to the two
-    values assigned as an entity's contested pair, at the time that
-    assignment is made -- not pre-verified against the rest of the pool.
-  \item[(b)] \textbf{Exact-duplicate ban}, unconditional and independent of
-    (a)/(c) (enforced at generation time, \S\ref{sec:generation}).
+    values assigned as an entity's contested pair, at assignment time.
+  \item[(b)] \textbf{Exact-duplicate ban}, enforced unconditionally at
+    generation time (\S\ref{sec:generation}).
   \item[(c)] \textbf{No overly common first token}: a value is rejected if
     its distinguishing first token (post-stem) decodes to fewer than 3
-    characters (e.g.\ ``\texttt{ A}'', ``\texttt{ Th}''). Rare/invented words
-    disproportionately fall back to such short BPE subwords, which are shared
-    by a large fraction of the vocabulary and therefore likely to collide
-    with whatever a value is eventually paired against -- an $O(n)$
-    per-value proxy rather than a corpus frequency lookup.
+    characters. Rare/invented words disproportionately fall back to such
+    short BPE subwords, which are shared by a large fraction of the
+    vocabulary and therefore likely to collide with whatever a value is
+    eventually paired against.
 \end{itemize}
-Templates are still authored per (a)'s construction rule above; only the
-pool-wide pre-verification requirement was relaxed.
 
-\textbf{Status under LLM-authored vignettes (S1 revision (g), resolved in
-\S\ref{sec:assembly})}: this section's checks were designed around, and are still
-run against, a shared \emph{template} (the mechanism above still gates which
-val$_A$/val$_B$ pairs are even offered to the vignette generator,
-\S\ref{sec:generation}). They no longer guarantee that the \emph{training text}
-itself diverges at one shared token position, since side $A$'s and side $B$'s
-paragraphs are independently authored and may differ in wording well before the
-value -- so this construction is repurposed to hold only for the separate
-eval-time probing format (\S\ref{sec:assembly}), not for training text.
+These checks gate which val$_A$/val$_B$ pairs are offered to the vignette
+generator (\S\ref{sec:generation}) and hold for the shared eval-time
+\emph{template} (\S\ref{sec:assembly}). They do not guarantee that
+independently-authored \emph{training} text diverges at one shared token
+position, since side $A$'s and side $B$'s paragraphs may differ in wording
+well before the value; per-fact recall is accordingly scored on the separate
+eval-time probing format, not on training text (\S\ref{sec:assembly}).
 
 \subsection{Exposure Scheduler}
 \label{sec:scheduler}
 
-Supersedes the prior recency-bin Insertion Scheduler entirely. Fact placement
-is generated by a scheduler decoupled from document content, mapping each
-entity's contested-relation split $(n_A, n_B)$ to token positions in the full
-backbone-plus-injection stream:
+Fact placement is generated by a scheduler decoupled from document content,
+mapping each entity's contested-relation split $(n_A, n_B)$ to token
+positions in the full backbone-plus-injection stream:
 
 \begin{itemize}
   \item \textbf{Two threads, one document}: side $A$ and side $B$ of an
@@ -732,202 +352,150 @@ backbone-plus-injection stream:
     underlying biography-rendering machinery (\S\ref{sec:entity}), rather
     than two independent documents. Thread $A$ contributes $n_A$ occurrence
     events, thread $B$ contributes $n_B$, $n_A + n_B = T$.
-  \item \textbf{Placement}: all $T$ occurrence events for an entity are placed
-    i.i.d.\ uniformly at random across the full planned training-token
-    stream, then labeled $A$ or $B$ according to which thread they belong to.
-    No recency bins, no last-occurrence jitter-within-a-bin: placement
+  \item \textbf{Placement}: all $T$ occurrence events for an entity are
+    placed i.i.d.\ uniformly at random across the full planned
+    training-token stream, then labeled $A$ or $B$ by thread. Placement
     timing is not a studied variable (\S\ref{sec:corpus}), so a single
     well-understood uniform randomization is used rather than any
     position-dependent mechanism.
   \item \textbf{Rendering coupling}: at each of the $T$ occurrence events
     (processed in chronological order), the entity's full biography instance
     is rendered (\S\ref{sec:entity}) with the contested relation resolved to
-    whichever side that event belongs to. Every other attribute (all
-    $K$ background relations) is rendered fresh at that same event
-    regardless of which side fired -- this is what gives background
-    content its exposure count of exactly $T$, with no separate scheduling
-    required.
+    whichever side that event belongs to. Every background relation is
+    rendered fresh at that same event regardless of which side fired -- this
+    is what gives background content its exposure count of exactly $T$, with
+    no separate scheduling required.
   \item \textbf{Logging}: the exact position and side-label of every
     occurrence event is recorded per entity, sufficient to reconstruct
-    $(n_A, n_B)$ and total exposure count at analysis time. No recency
-    measures are computed (superseded).
+    $(n_A, n_B)$ and total exposure count at analysis time.
 \end{itemize}
 
 \subsection{Corpus Scale: Conflict-Pair Phase}
 \label{sec:scale}
 
 \begin{itemize}
-  \item \textbf{Split levels: $T=80$, 6 levels}, superseding the earlier
-    $T=32$ placeholder -- \textbf{a scaled-up working estimate adopted ahead
-    of the exposure-budget pilot (\S\ref{sec:seeds}), not itself a
-    pilot-validated value.} Rationale for raising it: a capacity argument
-    (\S\ref{sec:seeds}) shows this population is nowhere near
-    capacity-constrained, so Allen-Zhu's 1000-exposure regime is the wrong
-    anchor, but $T=32$ likely undershoots the point where a contested pair's
-    confidence gap is reliably learned rather than noisy; the pilot is still
-    what fixes this properly, and should sweep around this new estimate
-    rather than assume it. Split levels (all summing to $T=80$, same
-    balanced-to-extreme spanning shape as the $T=32$ table it replaces):
+  \item \textbf{Split levels: $T=80$, 6 levels}: a working estimate reasoned
+    from the capacity-slack argument of \S\ref{sec:seeds}, not itself a
+    pilot-validated value. Allen-Zhu's $\sim$1000-exposure regime is the
+    wrong anchor here (\S\ref{sec:seeds} shows this population is nowhere
+    near capacity-constrained), but very low exposure counts likely
+    undershoot the point where a contested pair's confidence gap is reliably
+    learned rather than noisy. Split levels, all summing to $T=80$:
     $(40,40)$, $(50,30)$, $(60,20)$, $(68,12)$, $(73,7)$, $(77,3)$.
   \item \textbf{Replication}: 20 replicate entities per (relation type, split
     level) combination (14 types $\times$ 6 levels $\times$ 20 $=$ 1{,}680
-    entities total) -- unchanged in count from the $T=32$ population; the
-    $T=32\to T=80$ migration remapped each entity's existing $(n_A, n_B)$ to
-    its new value at the same split-level index (preserving every entity's
-    name, contested relation type, values, and background facts exactly, so
-    the population did not need to be rebuilt from scratch). Relation type
-    and split level are both exactly balanced by the construction in
-    \S\ref{sec:entity} -- every relation type is contested the same number
-    of times within every split level, so relation-type identity cannot
-    confound the frequency-gap comparison. Background-relation-type usage is
-    also exactly balanced, via the fixed cyclic-offset rule of
-    \S\ref{sec:entity}.
+    entities total). Relation type and split level are both exactly balanced
+    by the construction in \S\ref{sec:entity}, so relation-type identity
+    cannot confound the frequency-gap comparison; background-relation-type
+    usage is balanced via the same cyclic-offset rule.
 \end{itemize}
 
 \subsection{Corpus Assembly}
 \label{sec:assembly}
 
-Interleaves the OpenWebText backbone (\S\ref{sec:corpus}) with entities' vignette
-occurrences (\S\ref{sec:scheduler}) into the packed token shards
-\texttt{training/data.py:PackedTokenDataset} already expects (\texttt{meta.json} +
+Interleaves the OpenWebText backbone (\S\ref{sec:corpus}) with entities'
+vignette occurrences (\S\ref{sec:scheduler}) into the packed token shards
+\texttt{training/data.py:PackedTokenDataset} expects (\texttt{meta.json} +
 \texttt{*.bin}), plus a separate occurrence log.
 
 \begin{itemize}
-  \item \textbf{Single streaming pass, not two passes over a local file} --
-    superseding the WikiText-103-era design entirely. That design required a
-    fully-materialized local backbone file to read twice (once to measure
-    line lengths, once to write tokens); OpenWebText is instead pulled
-    through \texttt{preprocess/backbone\_openwebtext.py}'s chunked HF stream
-    (\S\ref{sec:corpus}), so there is no stable local file to re-read a
-    second time. This is not just a workaround but a simplification: every
-    occurrence event's position (\S\ref{sec:scheduler}) is already a
-    real-valued coordinate into $[0, \texttt{total\_tokens})$ decided purely
-    from the target token budget, with no dependency on backbone content --
-    so all events can be precomputed and sorted up front, then fired online
-    while streaming. \textbf{Two counters are kept, deliberately not one}: a
-    backbone-only cumulative count (compared against event positions, since
-    those coordinates are defined against the backbone stream alone,
-    \S\ref{sec:corpus-vs-training-tokens}) and the actual full packed-stream
-    offset including already-injected tokens (used only for the occurrence
-    log). Comparing events against the full-stream offset instead would let
-    an injected vignette's own tokens push that counter past \emph{later}
-    events' positions, firing them in a cascade well before the backbone
-    content that was supposed to precede them had actually been written --
-    caught in a mocked dry run (no real OpenWebText access needed to catch
-    it) before this shipped.
-  \item \textbf{Document boundaries, and insertion granularity within them}:
-    each OpenWebText row is one self-contained article (the natural document
-    unit here, unlike WikiText-103's per-line convention) and each injected
-    vignette occurrence is its own self-contained document, both delimited by
-    the GPT-2 EOS token. Injections are never spliced mid-sentence, but they
-    are also not restricted to firing only between whole articles: OpenWebText
-    documents run up to $\sim$100k characters, so checking only at document
-    boundaries would let a scheduled position sit unfired for an entire long
-    article before firing, well past where it was meant to land. Instead each
-    document is tokenized once, at full length
-    (\texttt{backbone\_openwebtext.py:tokenize\_with\_unit\_boundaries} --
-    tokenizing paragraph fragments separately and concatenating them was tried
-    and rejected: it silently drops the whitespace between paragraphs and
-    breaks any BPE merge that should span the boundary, verified concretely
-    during review), which also returns paragraph- (or sentence-, fallback)
-    boundary token indices; the event-firing check runs after every such
-    boundary, not just after every whole document. Two consequences of firing
-    mid-document rather than only between documents: (1) EOS is appended only
-    after a document's final boundary, so an uninterrupted article stays one
-    EOS-delimited unit on disk; (2) a vignette that fires at an
-    \emph{internal} paragraph boundary gets an EOS forced immediately before
-    it (in addition to the one already following it) -- without this, the
-    vignette would run directly into the preceding backbone paragraph with no
-    separator at all, exactly the concatenation this design is meant to avoid.
-    The rare case of a vignette firing exactly on a whole-document boundary
-    (which already ends in EOS) produces a harmless doubled EOS rather than
-    needing special-cased detection.
+  \item \textbf{Single streaming pass}: each occurrence event's position
+    (\S\ref{sec:scheduler}) is a real-valued coordinate into
+    $[0, \texttt{total\_tokens})$, decided purely from the target token
+    budget with no dependency on backbone content, so all events are
+    precomputed and sorted up front, then fired online while streaming.
+    \textbf{Two counters are kept, deliberately not one}: a backbone-only
+    cumulative count (compared against event positions, which are defined
+    against the backbone stream alone,
+    \S\ref{sec:corpus-vs-training-tokens}) and the actual full
+    packed-stream offset including already-injected tokens (used only for
+    the occurrence log). Comparing events against the full-stream offset
+    instead would let an injected vignette's own tokens push that counter
+    past later events' positions, firing them in a cascade before the
+    backbone content meant to precede them had been written.
+  \item \textbf{Document boundaries and insertion granularity}: each
+    OpenWebText row is one self-contained article and each injected
+    vignette occurrence is its own self-contained document, both delimited
+    by the GPT-2 EOS token. Injections are not restricted to firing only
+    between whole articles, since OpenWebText documents run up to
+    $\sim$100k characters -- checking only at document boundaries would let
+    a scheduled position sit unfired for an entire long article. Instead
+    each document is tokenized once at full length
+    (\texttt{backbone\_openwebtext.py:tokenize\_with\_unit\_boundaries},
+    which also returns paragraph- or sentence-boundary token indices), and
+    the event-firing check runs after every such boundary. EOS is appended
+    only after a document's final boundary, so an uninterrupted article
+    stays one EOS-delimited unit; a vignette firing at an internal paragraph
+    boundary gets an EOS forced immediately before it as well as after, so
+    it never runs directly into the preceding backbone paragraph with no
+    separator.
   \item \textbf{\texttt{total\_tokens} is a backbone budget, not the final
     corpus length}: backbone lines are tokenized and accumulated until this
     budget is met; scheduler positions are coordinates into that
     backbone-length stream. Injected occurrences add their own tokens on
     top, so the realized corpus is slightly longer than
     \texttt{total\_tokens} by the total injected-token count. This avoids a
-    circular dependency (exact final length depends on injected-text
-    lengths, which vary per LLM-authored variant and aren't known until
-    generation time).
+    circular dependency, since injected-text length varies per
+    LLM-authored variant and is not known until generation time.
   \item \label{sec:corpus-vs-training-tokens} \textbf{\texttt{total\_tokens}
-    (on-disk corpus size) and total training
-    tokens (\S\ref{sec:optimization}) are two independent quantities, not the
-    same number under two names}: this section's \texttt{total\_tokens} fixes
+    (on-disk corpus size) and total training tokens (\S\ref{sec:optimization})
+    are independent quantities}: this section's \texttt{total\_tokens} fixes
     how many distinct tokens exist in the packed shards on disk. Total
     training tokens is \texttt{batch\_size} $\times$ \texttt{n\_positions}
     $\times$ \texttt{max\_steps} (\S\ref{sec:optimization}) -- the number of
-    tokens the optimizer actually processes over the whole run, which
-    routinely exceeds \texttt{total\_tokens} because
-    \texttt{training/data.py:PackedTokenDataset} is sampled with replacement,
-    not iterated as fixed epochs: \texttt{training/train.py:infinite\_loader}
-    reshuffles and re-cycles the same fixed set of on-disk windows
-    indefinitely once one pass is exhausted, rather than stopping when the
-    corpus runs out. Concretely, a corpus with $N$ on-disk tokens trained for
-    $M$ total training tokens revisits that corpus $\approx M/N$ times over
-    the run -- this ratio is exactly the ``WikiText exposure'' open parameter
-    of \S\ref{sec:seeds}, and must be kept small enough that repetition
-    itself doesn't degrade quality (\citet{muennighoff2023scaling}: negligible
-    loss up to $\sim$4 epochs, a $\sim$16-epoch half-life past which returns
-    diminish sharply).
-  \item \textbf{Chunked consumption, memory-bounded either way}: each
-    $\sim$2GB text chunk from \texttt{backbone\_openwebtext.py} is tokenized
-    and its documents written directly to the output shard as they're
-    produced, then the chunk is discarded before the next one is pulled --
-    never holding more than one chunk's raw text, or the full token stream,
-    in memory at once. (The prior WikiText-103-era design's two-pass
-    approach solved a different problem -- avoiding a second full read of a
-    large local file -- that doesn't arise here, since OpenWebText is never
-    fully local to begin with, \S\ref{sec:corpus}.)
-  \item \textbf{Injected-token floor and its consequence for
-    \texttt{total\_tokens}}: the number of occurrence events is fixed by
-    population size and $T$ (1{,}680 entities $\times$ $T$, independent of
-    \texttt{total\_tokens} -- it only controls how spread out they are, not
-    how many there are), so there is a fixed injected-token floor that
-    \texttt{total\_tokens} must be large relative to for the "rare
-    conflicting fact in an otherwise natural corpus" framing to hold.
-    At $T=80$ (\S\ref{sec:scale}) and $\sim$103 tokens/occurrence (matching
-    the $T=32$-era measurement, gpt-4o-mini vignettes): $1{,}680 \times 80 =
-    134{,}400$ occurrences, $\approx$13.8M injected tokens -- $\approx$0.55\%
-    of the fixed $2.5\times10^9$ token budget (\S\ref{sec:corpus}), safely
-    within the "rare perturbation" framing without needing to push
-    \texttt{total\_tokens} any higher for this reason alone.
+    tokens the optimizer actually processes, which routinely exceeds
+    \texttt{total\_tokens} because
+    \texttt{training/data.py:PackedTokenDataset} is sampled with
+    replacement: \texttt{training/train.py:infinite\_loader} reshuffles and
+    re-cycles the same fixed set of on-disk windows indefinitely rather than
+    stopping when the corpus runs out. A corpus with $N$ on-disk tokens
+    trained for $M$ total training tokens revisits that corpus
+    $\approx M/N$ times over the run; this ratio must stay small enough that
+    repetition itself doesn't degrade quality
+    (\citet{muennighoff2023scaling}: negligible loss up to $\sim$4 epochs, a
+    $\sim$16-epoch half-life past which returns diminish sharply).
+  \item \textbf{Chunked consumption}: each $\sim$2GB text chunk from
+    \texttt{backbone\_openwebtext.py} is tokenized and its documents written
+    directly to the output shard as they're produced, then discarded before
+    the next chunk is pulled -- never holding more than one chunk's raw
+    text, or the full token stream, in memory at once.
+  \item \textbf{Injected-token floor}: the number of occurrence events is
+    fixed by population size and $T$ (1{,}680 entities $\times$ $T$,
+    independent of \texttt{total\_tokens} -- it only controls how spread out
+    they are, not how many there are), so there is a fixed injected-token
+    floor that \texttt{total\_tokens} must be large relative to for the
+    ``rare conflicting fact in an otherwise natural corpus'' framing to
+    hold. At $T=80$ (\S\ref{sec:scale}) and $\sim$103 tokens/occurrence
+    (gpt-4o-mini vignettes): $1{,}680 \times 80 = 134{,}400$ occurrences,
+    $\approx$13.8M injected tokens -- $\approx$0.55\% of the fixed
+    $2.5\times10^9$ token budget (\S\ref{sec:corpus}).
   \item \textbf{Variant selection}: round-robin per (entity, side), same
     discipline as \S\ref{sec:entity} (\texttt{PoolCycler}) -- no variant
-    repeats until that side's bank (\texttt{v\_a} or \texttt{v\_b} variants,
-    8 total per entity split unevenly per \S\ref{sec:entity}) is exhausted,
-    then reshuffled. \textbf{Heavy repetition is expected and accepted, not a
-    bug}: at the high-occurrence side of an extreme split (e.g. $(77,3)$'s
+    repeats until that side's bank (\texttt{v\_a} or \texttt{v\_b}
+    variants, 8 total per entity split unevenly per \S\ref{sec:entity}) is
+    exhausted, then reshuffled. Heavy repetition is expected and accepted:
+    at the high-occurrence side of an extreme split (e.g.\ $(77,3)$'s
     77-occurrence side with 7 variants), each paragraph is reused
-    $\approx$11 times over that entity's exposure history. This is the
-    explicit "combination of fresh vignettes and repetition" the $T=80$/$V=8$
-    design accepts rather than paying for enough fresh variants to avoid it
-    entirely (\citet{allenzhu2024capacity}'s bioR uses 40 variants/entity as
-    an upper anchor, but generating that many per side at population scale
-    was judged not worth the added API cost here).
-  \item \textbf{Output}: the packed stream (\texttt{data/processed/<name>/}) plus
-    \texttt{results/occurrence\_log.json} (small, tracked) recording every
-    occurrence event's entity, side, and final absolute token position in the
-    packed stream -- sufficient to reconstruct $(n_A, n_B)$ and exposure
-    timing at analysis time (\S\ref{sec:scheduler}), and for the training
-    loop to derive dense-checkpoint step windows (\S\ref{sec:checkpointing})
-    from token position and batch/block size (a training-side computation,
-    not performed here).
-  \item \textbf{Eval decoupling (resolves the open question in
-    \S\ref{sec:entity}, \S\ref{sec:divergence}, \S\ref{sec:eval})}:
-    per-fact recall is \emph{not} scored against training vignettes. Side
-    $A$ and side $B$ training text are independently LLM-authored and share
-    no common stem, so there is no single shared token position to compare
-    at. Instead, the original per-relation-type template banks
-    (\S\ref{sec:generation}'s first\_mention/restatement templates --
-    superseded for training-text generation, but still generated and kept
-    on disk) are repurposed as a fixed, controlled, eval-only probing
-    format: side $A$ and side $B$ are rendered through the identical
-    template, diverging at exactly one token as originally designed
-    (\S\ref{sec:divergence}). Training text stays free-form and diverse;
-    evaluation runs on a separate, minimal, controlled artifact the model
-    never saw during training.
+    $\approx$11 times over that entity's exposure history. This is an
+    explicit cost/API-budget tradeoff against \citet{allenzhu2024capacity}'s
+    bioR anchor of 40 variants/entity.
+  \item \textbf{Output}: the packed stream (\texttt{data/processed/<name>/})
+    plus \texttt{results/occurrence\_log.json}, recording every occurrence
+    event's entity, side, and final absolute token position in the packed
+    stream -- sufficient to reconstruct $(n_A, n_B)$ and exposure timing at
+    analysis time, and for the training loop to derive dense-checkpoint step
+    windows (\S\ref{sec:checkpointing}) from token position and batch/block
+    size.
+  \item \textbf{Eval decoupling}: per-fact recall is \emph{not} scored
+    against training vignettes. Side $A$ and side $B$ training text are
+    independently LLM-authored and share no common stem, so there is no
+    single shared token position to compare at. Instead, the
+    per-relation-type template banks generated in \S\ref{sec:generation} are
+    repurposed as a fixed, controlled, eval-only probing format: side $A$
+    and side $B$ are rendered through the identical template, diverging at
+    exactly one token as designed in \S\ref{sec:divergence}. Training text
+    stays free-form and diverse; evaluation runs on a separate, minimal,
+    controlled artifact the model never saw during training.
 \end{itemize}
 
 \subsection{Optimization}
@@ -937,140 +505,82 @@ occurrences (\S\ref{sec:scheduler}) into the packed token shards
   \item Optimizer: AdamW (fused CUDA kernel when running on GPU), cosine LR
     schedule with warmup, weight decay 0.01.
   \item Precision: bf16 mixed precision, gradient clipping.
-  \item \textbf{Batch size / step count: 128 / 38{,}146} -- batch size passed
-    through two GPU-driven revisions since the original 48 (see the
-    2026-07-06 and 2026-07-09 REVISION notes at the top of this file for the
-    full chain): first raised to 192 for A100 utilization, then confirmed by
-    a real cluster run to CUDA-OOM at 192 (only $\approx$8GB free of 80GB
-    against a 9.2GB backward-pass buffer) and dropped to 128, which leaves
-    $\approx$26GB of headroom. Architecture (12-layer/12-head/768-dim) and
-    weight decay/cosine schedule shape still match
-    \citet{allenzhu2023physics} for comparability; batch size, and (per the
-    2026-07-09 revision below) grad\_clip and AdamW eps, do not. Step count is
-    re-derived, as before, from the fixed $2.5\times10^9$-token target
+  \item \textbf{Batch size / step count: 128 / 38{,}146}. An empirical CUDA
+    probe (\texttt{training/probe\_max\_batch\_size.py}) found the true max
+    batch size that fits on an A100-80GB at 512-token context is 140;
+    128 leaves $\approx$26GB of headroom, comfortably clear of the backward-pass
+    logits buffer that dominates peak memory. Architecture and weight
+    decay/cosine schedule shape match \citet{allenzhu2023physics} for
+    comparability; batch size, grad\_clip, and AdamW eps do not (below). Step
+    count is derived from the fixed $2.5\times10^9$-token target
     (\S\ref{sec:corpus}): at 512-token context, $128 \times 512 \times
-    38{,}146 \approx 2.5\times10^9$ tokens. Since \texttt{total\_tokens}
-    (on-disk) is also fixed at $2.5\times10^9$
-    (\S\ref{sec:corpus-vs-training-tokens}), this remains $\approx$one epoch
-    over the backbone, not a multi-epoch repeat.
-  \item \textbf{Learning rate, warmup, gradient clipping, and AdamW eps: lr
-    $6\times10^{-4}$, warmup\_steps 2000, grad\_clip 0.5, eps $10^{-6}$} --
-    revised 2026-07-09 (see that REVISION note above for the full incident
-    and rationale) after independent, irrecoverable loss spikes hit the T=80
-    and T=1280 sweep conditions partway through training. lr reverts to the
+    38{,}146 \approx 2.5\times10^9$ tokens, matching
+    \texttt{total\_tokens} (\S\ref{sec:corpus-vs-training-tokens}) so this
+    remains $\approx$one epoch over the backbone.
+  \item \textbf{Learning rate and stability settings: lr $6\times10^{-4}$,
+    warmup\_steps 2000, grad\_clip 0.5, eps $10^{-6}$}. lr follows the
     standard GPT-2-small/GPT-3-125M literature value
-    \citep{radford2019language, brown2020gpt3} rather than this project's own
-    sqrt-scaled derivation (\citet{malladi2022sdes}) from the batch-size
-    chain above, which had compounded onto an already-mismatched small
-    reference batch across two rescalings. warmup\_steps is raised for extra
-    margin ($\sim$2\% $\to$ $\sim$5\% of \texttt{max\_steps}); grad\_clip is
-    tightened and eps set explicitly (not left at AdamW's implicit
-    $10^{-8}$ default) per \citet{wortsman2024smallscale}'s finding that a
-    too-small eps can let a layer's effective LR blow up once gradient RMS
-    shrinks under high-LR instability. batch\_size stays at 128: an empirical
-    CUDA probe (\texttt{training/probe\_max\_batch\_size.py}) found the true
-    max at 512-token context is 140, not enough headroom over 128 to justify
-    re-deriving lr/warmup/step-count for a batch-size change too.
-  \item \textbf{GPU-memory fit is now validated}, superseding the
-    corresponding open question in the prior revision of this section:
-    batch=128 has run to tens of thousands of steps across the $T$-sweep
-    without a memory failure. The loss spikes that motivated the
-    2026-07-09 revision above were a training-stability failure, not a
-    memory one, and are addressed by the checkpoint-rotation/spike-guard/
-    rollback mechanism in \S\ref{sec:checkpointing}, not by batch size.
+    \citep{radford2019language, brown2020gpt3}. warmup covers $\sim$5\% of
+    \texttt{max\_steps}; grad\_clip is tightened and eps set explicitly (not
+    AdamW's implicit $10^{-8}$ default) per \citet{wortsman2024smallscale}'s
+    finding that a too-small eps can let a layer's effective LR blow up once
+    gradient RMS shrinks under high-LR instability. These settings, together
+    with the checkpoint-rotation/spike-guard/rollback mechanism of
+    \S\ref{sec:checkpointing}, were adopted after early training runs at a
+    more aggressive, sqrt-rescaled learning rate suffered irrecoverable loss
+    spikes partway through training; the literature-standard lr combined
+    with a tighter eps/grad\_clip has since trained cleanly across the full
+    $T$-sweep (\S\ref{sec:seeds}).
   \item Estimated wall-clock time on a single A100 80GB: using nanoGPT's
     published single-A100 benchmark ($\sim$178,000 tokens/sec at 49\% MFU
-    training this same 124M-parameter architecture, itself measured with a
-    fused optimizer and \texttt{torch.compile} -- both now also used here,
-    \texttt{training/train.py}) as the closest available reference point,
-    $2.5\times10^9$ tokens $/ 178{,}000 \approx 3.9$ hours -- comfortably
-    inside a single 12-hour cluster job (CLAUDE.md \S2), though this figure
-    has not been validated against this project's own throughput (different
-    context length, GPU variant, batch size) and should be treated as a
-    planning estimate, not a commitment, until measured.
+    for this same 124M-parameter architecture, measured with a fused
+    optimizer and \texttt{torch.compile}, both also used here) as the
+    closest available reference point, $2.5\times10^9$ tokens $/ 178{,}000
+    \approx 3.9$ hours -- comfortably inside a single 12-hour cluster job
+    (CLAUDE.md \S2), treated as a planning estimate rather than a measured
+    commitment.
 \end{itemize}
 
 \subsection{Checkpointing}
 \label{sec:checkpointing}
 
-% REVISION (2026-07-07): single-slot overwrite policy adopted, superseding the
-% dual-cadence sparse-rotation + dense-stratified-full-weight-retention design
-% below in its entirety (training/checkpoint.py, training/config.py). Explicit
-% request: at most one pair of weights (model + optimizer state) stored on disk
-% the whole time, so N simultaneously-running conditions (the T-sweep,
-% \S\ref{sec:seeds}) cost a small, constant amount of checkpoint storage
-% regardless of run length, rather than accumulating a stratified sample of
-% dense full-weight snapshots per run as before. Every full save -- sparse-cadence
-% or the unconditional final save -- now overwrites the same
-% \texttt{checkpoints/latest/} directory via a crash-safe rename-swap (write to a
-% fresh temp dir, then two atomic directory renames to swap it in for
-% \texttt{latest/} and discard the old one) rather than an in-place file
-% overwrite, so a crash mid-write can never corrupt the one surviving checkpoint.
-% The final save supersedes whatever sparse checkpoint preceded it by the same
-% mechanism. \textbf{Accepted cost, not an oversight}: dense checkpointing no
-% longer captures full weights at all -- only its metrics-only markers remain
-% (still a fine-grained loss/eval timeline near occurrence events). This removes
-% the capability the paragraph below originally described (retrospective
-% sparse-grid or dense-window mechanistic probing across a run's history, e.g.
-% for the logit-lens/activation-patching/linear-probe work of
-% \S\ref{sec:eval}) -- only the single most recent checkpoint is ever
-% inspectable after a run finishes or is interrupted.
-%
-% REVISION (2026-07-09): single-overwriting-slot policy above superseded by
-% $N=3$ rotating slots plus a stability layer (\texttt{training/checkpoint.py},
-% \texttt{training/config.py}'s \texttt{StabilityConfig},
-% \texttt{training/train.py}, \texttt{training/finalize\_checkpoint.py}) -- see
-% the REVISION note at the top of this file for the full T=80/T=1280
-% loss-spike incident that motivated this. The single-slot design's storage
-% rationale (\S\ref{sec:seeds}'s $N$ simultaneous conditions cost a small,
-% constant amount of checkpoint storage) still holds at $N=3$ slots (a small,
-% constant multiple of before, not a growing history), while no longer
-% risking the one surviving checkpoint being an already-diverged state that a
-% rollback can't recover from.
-
-Rotating slots, step-indexed, with an automatic stability layer (supersedes
-both the wall-clock checkpoint rule in CLAUDE.md \S5 and the single-slot
-design above):
+Rotating slots, step-indexed, with an automatic stability layer that
+supersedes the wall-clock checkpoint rule in CLAUDE.md \S5:
 \begin{itemize}
-  \item \textbf{Sparse}: full checkpoint (weights, optimizer state, RNG state)
-    every $S$ steps, $S$ set to bound compute loss on crash to
+  \item \textbf{Sparse}: full checkpoint (weights, optimizer state, RNG
+    state) every $S$ steps, $S$ set to bound compute loss on crash to
     $\sim$30 minutes at measured throughput -- written to a free
     \texttt{slot\_N} (crash-safe temp-write-then-rename) until
-    \texttt{num\_checkpoint\_slots}$=3$ exist, then evicts the oldest-by-step
-    slot, rather than overwriting a single \texttt{latest/} directory.
+    \texttt{num\_checkpoint\_slots}$=3$ exist, then evicts the
+    oldest-by-step slot.
   \item \textbf{Dense}: every few hundred steps within a fixed window
-    following each contested-relation occurrence event (\S\ref{sec:scheduler}),
-    logs eval metrics only. No full weights are ever captured on this cadence
-    (see 2026-07-07 revision note above).
+    following each contested-relation occurrence event
+    (\S\ref{sec:scheduler}), logs eval metrics only; no full weights are
+    captured on this cadence.
   \item \textbf{Spike guard}: per training step, a 50-step rolling mean of
-    loss is tracked; if a step's loss is non-finite or exceeds
-    $4\times$ that mean (once at least 20 steps of history exist), the
-    optimizer update is skipped for that step (gradients zeroed instead of
-    applied) rather than letting a corrupted gradient update Adam's moment
-    estimates, and the spiked loss is excluded from the rolling mean.
+    loss is tracked; if a step's loss is non-finite or exceeds $4\times$
+    that mean (once at least 20 steps of history exist), the optimizer
+    update is skipped for that step (gradients zeroed rather than applied)
+    and the spiked loss is excluded from the rolling mean.
   \item \textbf{Rollback}: after each eval, a streak counter increments
     whenever val\_ppl exceeds $2\times$ the best val\_ppl seen so far; once
     that streak reaches 3 consecutive evals, model/optimizer/scheduler/RNG
-    state is reloaded from the most recent rotating checkpoint, the learning
-    rate is multiplied by a $0.7\times$ decay factor (floor: 0.1 of base lr,
-    reapplied every step so the cosine schedule's own recomputation can't
-    silently undo it), and the step counter is rewound to match. Rollback is
-    capped at 5 occurrences; once exhausted, training stops early
-    (rather than looping indefinitely) and the run summary records that it
-    ended via exhausted-rollback, not by reaching \texttt{max\_steps}. This
-    rollback/LR-penalty state is process-local: it does not persist across a
-    separate preemption/resume of the training script, only within one
-    continuous run.
+    state is reloaded from the most recent rotating checkpoint, the
+    learning rate is multiplied by a $0.7\times$ decay factor (floor: 0.1 of
+    base lr), and the step counter is rewound to match. Rollback is capped
+    at 5 occurrences; once exhausted, training stops early rather than
+    looping indefinitely, and the run summary records that it ended via
+    exhausted-rollback rather than by reaching \texttt{max\_steps}. This
+    state is process-local: it does not persist across a separate
+    preemption/resume of the training script.
   \item \textbf{Final}: an unconditional full save at the true last training
     step, through the same rotating-slot mechanism as Sparse above.
-  \item \textbf{Finalize}: once training ends (by reaching
-    \texttt{max\_steps} or by exhausted-rollback early stop),
+  \item \textbf{Finalize}: once training ends,
     \texttt{training/finalize\_checkpoint.py} renames the single
     lowest-val\_ppl retained slot to \texttt{checkpoints/best/} and deletes
-    every other slot -- so exactly one checkpoint remains on disk per run
-    once training is done, matching the single-slot design's storage
-    footprint at rest, and that is what any downstream eval
-    (\S\ref{sec:eval}) reads by default.
+    every other slot, so exactly one checkpoint remains on disk per run,
+    and that is what any downstream eval (\S\ref{sec:eval}) reads by
+    default.
 \end{itemize}
 
 \subsection{Evaluation}
@@ -1078,61 +588,38 @@ design above):
 
 Run at every checkpoint:
 \begin{itemize}
-  \item Held-out WikiText-103 perplexity (LM coherence check).
+  \item Held-out perplexity against an in-domain OpenWebText validation
+    split (LM coherence check, used for checkpoint selection); held-out
+    WikiText-103 perplexity is additionally reported as an out-of-domain
+    diagnostic.
   \item Per-fact recall: log-probability / rank of the target value's first
     divergent token (\S\ref{sec:divergence}), computed per side ($A$/$B$) of
-    the contested relation for every entity. Scored at a single token rather
-    than the full continuation to avoid a token-count length confound, and
-    via log-probability rather than free-form generation because base
-    (non-instruction-tuned) checkpoints cannot be reliably prompted for
-    parseable short-answer output.
+    the contested relation for every entity. Scored at a single token
+    rather than the full continuation to avoid a token-count length
+    confound, and via log-probability rather than free-form generation
+    because base (non-instruction-tuned) checkpoints cannot be reliably
+    prompted for parseable short-answer output.
 \end{itemize}
 
-% REVISION (2026-07-07): checkpointing moved to a single-slot overwrite policy
-% (\S\ref{sec:checkpointing}) -- only the most recent checkpoint is ever on disk,
-% so the sparse-cadence-grid mechanistic-probing plan below is no longer
-% executable after the fact. Retained here as a statement of intent for any
-% future run that explicitly re-enables multi-checkpoint retention, not as a
-% description of what the current pipeline can do.
-Mechanistic probes (logit lens, activation patching, linear probes for
-which-fact-is-preferred), where run, would use the sparse-cadence grid at
-windows flagged by the recall curves -- not currently possible against a
-completed/in-progress run under \S\ref{sec:checkpointing}'s single-slot policy.
-
-\textbf{Non-conflict (background) recall test} (2026-07-07, \texttt{eval/recall.py}):
-a dedicated evaluation focus on the $4$ background (non-contested) facts per
-entity, deliberately separate from the contested-term calibration question
-above -- background facts receive exactly $T$ exposures per entity regardless
-of contested split level (\S\ref{sec:entity}), so this gives one clean
-recall-vs-$T$ curve per relation type, decoupled from split-level conditioning
-entirely, and serves as a check that training produced any fact learning at
-all, independent of the harder frequency-calibration question. Uses the same
+\textbf{Non-conflict (background) recall test} (\texttt{eval/recall.py}): a
+dedicated evaluation of the 4 background (non-contested) facts per entity,
+separate from the contested-term calibration question above -- background
+facts receive exactly $T$ exposures per entity regardless of contested split
+level (\S\ref{sec:entity}), giving one clean recall-vs-$T$ curve per relation
+type, and serving as a check that training produced fact learning at all,
+independent of the harder frequency-calibration question. Uses the same
 fixed-template probing stem as contested recall (\S\ref{sec:divergence}), but
 scored against the \emph{whole} $50{,}257$-token vocabulary at absolute
-probability -- an explicit design choice against restricting to a
-same-relation-type candidate pool, so the model must outscore every plausible
-completion, not just other entries from that relation's value pool. Metrics,
-per relation type and pooled overall across all $6{,}720$ background probes
-($1{,}680$ entities $\times$ 4 facts): \textbf{top-1 accuracy} (correct token
-is the model's argmax), \textbf{top-5 accuracy} (correct token ranks in the top
-5), and \textbf{logit margin} (signed: the model's winning margin over the
-runner-up when its top pick is correct, or the deficit behind its actual top
-pick when wrong -- computed from the same log-softmax row already used for
-rank, so this is numerically identical to a raw-logit margin). The pooled
-figure is the one compared across the $T$-sweep (\S\ref{sec:seeds}); per-record
-\texttt{relation\_key}/\texttt{entity\_id} tags are retained in the output JSON
-so results remain sliceable by relation type after the fact. Legacy full-vocab
-mean/median rank and mean log-probability are kept as secondary context, not
-replaced.
-
-\textbf{Resolved (S1 revision (g), \S\ref{sec:assembly})}: the per-fact recall metric
-above presumes the target value's first divergent token is well-defined and shared
-across side $A$ and side $B$'s renderings -- true by construction under the prior
-shared-template design (\S\ref{sec:divergence}), not guaranteed once training text is
-LLM-authored independently per side (\S\ref{sec:entity}). Recall is scored on a
-separate, fixed-template probing prompt (the original per-relation-type templates,
-kept for exactly this purpose) rather than on sampled training vignettes -- see
-\S\ref{sec:assembly} for the full rationale.
+probability, so the model must outscore every plausible completion, not just
+other entries from that relation's value pool. Metrics, per relation type and
+pooled overall across all $6{,}720$ background probes ($1{,}680$ entities
+$\times$ 4 facts): \textbf{top-1 accuracy}, \textbf{top-5 accuracy}, and
+\textbf{logit margin} (signed: the model's winning margin over the runner-up
+when its top pick is correct, or the deficit behind its actual top pick when
+wrong). The pooled figure is compared across the $T$-sweep
+(\S\ref{sec:seeds}); per-record \texttt{relation\_key}/\texttt{entity\_id}
+tags are retained in the output JSON so results remain sliceable by relation
+type after the fact.
 
 \subsection{Calibration Target}
 \label{sec:calibration}
@@ -1151,7 +638,8 @@ posterior over exposure counts):
     monotonically as the frequency gap $n_A - n_B$ widens; no reversals as
     the gap is dialed up.
   \item \textbf{Symmetry at balance}: at the balanced condition ($n_A = n_B$)
-    confidence sits near 50/50 rather than locking arbitrarily onto one side.
+    confidence sits near 50/50 rather than locking arbitrarily onto one
+    side.
   \item \textbf{No premature saturation}: confidence does not approach the
     softmax extremes long before the frequency gap does (overconfidence).
 \end{itemize}
@@ -1159,8 +647,8 @@ posterior over exposure counts):
 \textbf{Metrics}, derived from the same per-side log-probabilities already
 scored in \S\ref{sec:eval} (no separate eval pipeline): softmax the two
 log-probabilities into a confidence over $\{A, B\}$; plot against the
-frequency gap over the split-level sweep of \S\ref{sec:scale}; compute expected
-calibration error against the chosen normative curve, and a
+frequency gap over the split-level sweep of \S\ref{sec:scale}; compute
+expected calibration error against the chosen normative curve, and a
 monotonicity-violation count. By default this is computed from the
 \emph{logit gap} -- the raw logit difference between the two sides at their
 divergent token (\S\ref{sec:divergence}), equivalent up to a sigmoid
@@ -1168,55 +656,50 @@ transform to the softmax confidence above -- and both the gap and the full
 per-side logits are recorded, so alternative derived metrics remain
 reconstructable without rerunning the model.
 
-\textbf{Regime note}: this metric is scored at the base (non-instruction-tuned)
-checkpoint stage per \S\ref{sec:eval}. That is not purely a practical
-necessity (base checkpoints cannot be reliably prompted for parseable
-short-answer output) -- it also keeps the token-level probability distribution
-itself informative, which is the object this section's metrics operate on.
+This metric is scored at the base (non-instruction-tuned) checkpoint stage
+per \S\ref{sec:eval}, which keeps the token-level probability distribution
+itself informative -- the object this section's metrics operate on -- in
+addition to being a practical necessity, since base checkpoints cannot be
+reliably prompted for parseable short-answer output.
 
 \subsection{Candidate Quantitative Metric: Cross-Entropy to a Proportional Target}
 \label{sec:xent-metric}
 
-The three properties above are checkable but not optimizable: they say what a
-well-calibrated confidence curve should look like, not how far a given curve is
-from that in a single number. This subsection defines one candidate
-quantitative operationalization. \textbf{It is one of several metrics under
-active consideration during this exploration phase, not a replacement for the
-three properties above or a settled final choice} -- other functional forms
-(e.g.\ a Bayesian posterior-mean target, tried and provisionally ruled out
-below) remain live alternatives, and selecting among them is ongoing.
+The three properties above are checkable but not optimizable: they describe
+what a well-calibrated confidence curve should look like, not how far a
+given curve is from that in a single number. This section defines one
+candidate quantitative operationalization, among several under active
+consideration; a Bayesian posterior-mean target was also tried and is
+provisionally ruled out below.
 
 \textbf{Target}: for a contested entity with exposure split $(n_A, n_B)$,
-$T = n_A + n_B$, define the ideal post-softmax distribution over $\{A, B\}$ as
-directly proportional to the exposure split: $q_A = n_A / T$, $q_B = n_B / T$
--- the maximum-likelihood target under the simplest possible reading of the
-corpus as evidence (each occurrence is one vote for its side, no prior pull
-toward uncertainty).
+$T = n_A + n_B$, define the ideal post-softmax distribution over $\{A, B\}$
+as directly proportional to the exposure split: $q_A = n_A / T$,
+$q_B = n_B / T$ -- the maximum-likelihood target under the simplest possible
+reading of the corpus as evidence (each occurrence is one vote for its side,
+no prior pull toward uncertainty).
 
 \textbf{Metric}: let $p_A = \sigma(\ell_A - \ell_B)$ be the model's actual
 softmax confidence restricted to the two candidates (the logit gap above,
 sigmoid-transformed), $p_B = 1 - p_A$. Score the model's deviation from the
 target via cross-entropy, $H(q, p) = -q_A \log p_A - q_B \log p_B$, reported
-per split level (mean over entities at that split) and pooled (mean over all
-contested entities). The closely related KL divergence
-$D_{KL}(q \| p) = H(q,p) - H(q)$, where $H(q) = -q_A\log q_A - q_B\log q_B$ is
-the target's own entropy, is computed from the same quantities at negligible
-extra cost and reported alongside it: $H(q)$ varies by split level (maximal at
-balance, near zero at the most extreme split), so raw cross-entropy conflates
-irreducible target uncertainty with actual miscalibration, while $D_{KL}$
-isolates the latter -- cross-entropy is reported as the primary number per this
-section's brief, $D_{KL}$ as the split-level-comparable variant.
+per split level (mean over entities at that split) and pooled. The related KL
+divergence $D_{KL}(q \| p) = H(q,p) - H(q)$, where
+$H(q) = -q_A\log q_A - q_B\log q_B$ is the target's own entropy, is computed
+at negligible extra cost and reported alongside it: $H(q)$ varies by split
+level (maximal at balance, near zero at the most extreme split), so raw
+cross-entropy conflates irreducible target uncertainty with actual
+miscalibration, while $D_{KL}$ isolates the latter. Cross-entropy is reported
+as the primary number, $D_{KL}$ as the split-level-comparable variant.
 
-\textbf{Caveat, not yet resolved}: both quantities are computed per entity then
-averaged, which conflates two different things -- whether the \emph{average}
-confidence matches the average target (systematic bias), and how much
-individual-entity confidence scatters around that average (per-entity noise).
-By Jensen's inequality (KL is convex), scatter alone inflates the pooled number
-even when the aggregate is well-calibrated; the empirical numbers below show
-exactly this at the balanced split, where pooled mean confidence (53.4\%) sits
-close to the 50\% target but mean KL is not the smallest of the six split
-levels. Disentangling the two is future work, not resolved by this metric
-alone.
+\textbf{Caveat}: both quantities are computed per entity then averaged, which
+conflates whether the \emph{average} confidence matches the average target
+(systematic bias) with how much individual-entity confidence scatters around
+that average (per-entity noise). By Jensen's inequality (KL is convex),
+scatter alone inflates the pooled number even when the aggregate is
+well-calibrated; empirically, at the balanced split, pooled mean confidence
+(53.4\%) sits close to the 50\% target but mean KL is not the smallest of the
+six split levels. Disentangling the two is left as future work.
 
 \textbf{Implementation}: computed post-hoc from already-recorded per-entity
 $\ell_A, \ell_B$ (no rerun of the model needed) in \texttt{eval/recall.py}'s
@@ -1227,20 +710,20 @@ population of \S\ref{sec:relation-restriction} by
 
 \textbf{Example numbers} (T=1280, top-7 relations, checkpoint step 61035;
 \texttt{results/interventions/gpt2-small-openwebtext-T1280/
-calibration\_top7\_step61035.md}): pooled mean cross-entropy 0.875 nats, pooled
-mean $D_{KL}$ 0.409 nats. By split level ($n_A$/$n_B$, mean cross-entropy, mean
-$D_{KL}$): 640/640: 1.255, 0.562; 800/480: 1.204, 0.542; 960/320: 1.115, 0.553;
-1088/192: 0.849, 0.427; 1168/112: 0.551, 0.255; 1232/48: 0.275, 0.115 -- both
-quantities fall roughly monotonically as the split widens, even though the raw
-logit gap \emph{overshoots} the proportional target at the two widest splits
-(an informal fit-comparison against $\log(n_A/n_B)$, not yet written up
-separately, found the same overshoot and ruled out Bayesian posterior-mean
-shrinkage as an explanation -- any valid prior can only pull the target toward
-50/50, the wrong direction to explain an overshoot) -- cross-entropy/KL treat
-``more confident than the target, on the correct side'' as cheap once $q$ is
-already near an extreme, unlike a raw-logit-gap comparison, which is exactly
-the kind of behavior difference between candidate metrics this exploration
-phase is meant to surface.
+calibration\_top7\_step61035.md}): pooled mean cross-entropy 0.875 nats,
+pooled mean $D_{KL}$ 0.409 nats. By split level ($n_A$/$n_B$, mean
+cross-entropy, mean $D_{KL}$): 640/640: 1.255, 0.562; 800/480: 1.204, 0.542;
+960/320: 1.115, 0.553; 1088/192: 0.849, 0.427; 1168/112: 0.551, 0.255;
+1232/48: 0.275, 0.115 -- both quantities fall roughly monotonically as the
+split widens, even though the raw logit gap \emph{overshoots} the
+proportional target at the two widest splits (an informal fit-comparison
+against $\log(n_A/n_B)$ found the same overshoot and ruled out Bayesian
+posterior-mean shrinkage as an explanation, since any valid prior can only
+pull the target toward 50/50, the wrong direction to explain an overshoot).
+Cross-entropy/KL treat ``more confident than the target, on the correct
+side'' as cheap once $q$ is already near an extreme, unlike a raw-logit-gap
+comparison -- exactly the kind of behavior difference between candidate
+metrics this exploration phase is meant to surface.
 
 \subsection{Exposure-Count Calibration and Seeds}
 \label{sec:seeds}
@@ -1248,29 +731,27 @@ phase is meant to surface.
 \textbf{Exposure-budget pilot}: rather than adopting an exposure-count regime
 from prior work, $T$ (\S\ref{sec:scale}) is meant to be calibrated
 empirically to this project's own setting. \citet{allenzhu2024capacity}'s
-$\sim$1000-exposure regime is a poor prior here: their numbers are calibrated
-to a capacity-stressed setting (millions of entities competing for a fixed
-parameter budget), whereas this design uses a much smaller, non-capacity-
-constrained entity population, so any single fact is learned far faster and
-values anywhere near 1000 exposures would be expected to saturate both sides
-of a contested pair well before the frequency gap does -- directly violating
-the ``no premature saturation'' property of \S\ref{sec:calibration}. The
-pilot itself has not been run yet; in its place, $T=80$ (\S\ref{sec:scale})
-is a working estimate reasoned from the same capacity argument rather than
-measured: this population's total factual content is
+$\sim$1000-exposure regime is a poor prior here: their numbers are
+calibrated to a capacity-stressed setting (millions of entities competing
+for a fixed parameter budget), whereas this design uses a much smaller,
+non-capacity-constrained entity population, so any single fact is learned
+far faster and values near 1000 exposures would be expected to saturate both
+sides of a contested pair well before the frequency gap does -- directly
+violating the ``no premature saturation'' property of \S\ref{sec:calibration}.
+The pilot itself has not been run yet; in its place, $T=80$
+(\S\ref{sec:scale}) is a working estimate reasoned from a capacity argument:
+this population's total factual content is
 $1{,}680 \times 5 \times \log_2(150) \approx 61{,}000$ bits (5 facts/entity,
 $\sim$150-entry value pools), against GPT-2-small's $\sim$2-bit/parameter
 capacity ceiling of $124\text{M} \times 2 \approx 248$M bits
 (\citet{allenzhu2024capacity}'s own measured saturation rate) -- a
 $\sim$4{,}000$\times$ slack, i.e.\ nowhere near capacity-constrained, so
-substantially fewer than 1000 exposures should suffice, but $T=32$ likely
-undershot that point. $T=80$ is a reasoned midpoint, not a validated one:
-once the pilot is actually run, it should sweep a range spanning this
-estimate (e.g.\ $32/64/128/256/512$) and inspect the resulting
-logit-gap/calibration curve; $T$ is fixed at a value where that curve is
-monotonic but not yet saturated, per \S\ref{sec:calibration}. Only the
-conditions selected by this pilot are then re-run at the full corpus scale
-and seed count of \S\ref{sec:scale}.
+substantially fewer than 1000 exposures should suffice. Once the pilot is
+run, it should sweep a range spanning this estimate (e.g.\
+$32/64/128/256/512$) and inspect the resulting logit-gap/calibration curve;
+$T$ is fixed at a value where that curve is monotonic but not yet saturated,
+per \S\ref{sec:calibration}. Only the conditions selected by this pilot are
+then re-run at the full corpus scale and seed count of \S\ref{sec:scale}.
 
 \textbf{Seeds}: multiple random seeds and data-ordering variants per
 condition, to separate a stable property of the setup from a
@@ -1278,33 +759,30 @@ single-trajectory artifact, staged the same way as the exposure-budget pilot
 above (single-seed pilot identifies conditions of interest; only those are
 re-run at full seed count).
 
-\textbf{Pilot scope, updated}: three of the original four parameters here
-are now resolved working values rather than open unknowns, each reasoned
-through in the sections cited, though none are pilot-validated:
+\textbf{Pilot scope}: of the original open parameters, $T$ remains the one
+genuinely unresolved:
 \begin{itemize}
   \item \textbf{\texttt{total\_tokens}} (\S\ref{sec:corpus},
     \S\ref{sec:assembly}): fixed at $2.5\times10^9$, the Chinchilla-optimal
-    point for a 124M-parameter model \citep{hoffmann2022chinchilla} -- no
-    longer an open range, now that OpenWebText (\S\ref{sec:corpus}) can
-    actually supply that many unique tokens in a single pass.
+    point for a 124M-parameter model \citep{hoffmann2022chinchilla}, now
+    that OpenWebText (\S\ref{sec:corpus}) can supply that many unique tokens
+    in a single pass.
   \item \textbf{Backbone exposure}: with \texttt{total\_tokens} set equal to
-    the total-training-token target (\S\ref{sec:corpus}), the backbone is
-    seen $\approx$once (no repetition), sidestepping the over/under-sampling
-    confound this bullet used to flag -- resolved by construction rather
-    than by a separate ratio decision.
+    the total-training-token target, the backbone is seen $\approx$once (no
+    repetition), resolved by construction rather than by a separate ratio
+    decision.
   \item \textbf{$V$} (variants per entity/side, \S\ref{sec:entity}): fixed
     at 8 total per entity, split unevenly across sides via
-    \texttt{variants\_per\_side} (\S\ref{sec:entity}, \S\ref{sec:scale}) --
-    up from the flat $V=5$/side default, though still well short of
-    \citet{allenzhu2024capacity}'s bioR anchor (40/entity); heavy
-    round-robin repetition on the high-occurrence side of extreme splits is
-    accepted as a cost/API-budget tradeoff (\S\ref{sec:assembly}), not
-    eliminated.
-  \item \textbf{$T$} (\S\ref{sec:scale}) remains the one genuinely open
-    parameter: $80$ is a reasoned working estimate (capacity-slack argument
-    above), not a pilot-validated value. The pilot, once run, should sweep
-    around this estimate and may revise $T$ (and, if $T$ moves far enough,
-    revisit $V$'s allocation and the split levels of \S\ref{sec:scale}).
+    \texttt{variants\_per\_side} (\S\ref{sec:entity}, \S\ref{sec:scale}),
+    still well short of \citet{allenzhu2024capacity}'s bioR anchor
+    (40/entity); heavy round-robin repetition on the high-occurrence side of
+    extreme splits is accepted as a cost/API-budget tradeoff
+    (\S\ref{sec:assembly}).
+  \item \textbf{$T$} (\S\ref{sec:scale}): $80$ is a reasoned working
+    estimate (capacity-slack argument above), not a pilot-validated value.
+    The pilot, once run, should sweep around this estimate and may revise
+    $T$ (and, if $T$ moves far enough, revisit $V$'s allocation and the
+    split levels of \S\ref{sec:scale}).
 \end{itemize}
 
 \subsection{Recall Baseline and Relation-Type Restriction for Interventions}
@@ -1313,18 +791,18 @@ through in the sections cited, though none are pilot-validated:
 Every method surveyed below arbitrates between two \emph{already-memorized}
 candidate values for a contested relation -- steering, pruning, or
 re-calibrating confidence over $\{A, B\}$ presupposes that both sides were
-actually stored during training, not merely that the eval template happens to
-match training phrasing. Until this is checked per relation type, none of
-these methods has a valid baseline to act on: an intervention "working" on a
-relation the model never learned the fact for is indistinguishable from an
+actually stored during training, not merely that the eval template happens
+to match training phrasing. Until this is checked per relation type, none of
+these methods has a valid baseline to act on: an intervention ``working'' on
+a relation the model never learned the fact for is indistinguishable from an
 intervention doing nothing to two tokens the model was already guessing at
 chance.
 
 The background-recall diagnostic (\S\ref{sec:eval}), rerun with
-phrasing-tolerant best-of-5-template scoring (\S\ref{sec:eval}) on the
-$T{=}1280$ checkpoint (\S\ref{sec:seeds}) to rule out template mismatch as a
-confound, shows recall is not uniform across the 14-type inventory
-(\S\ref{sec:entity}) but sharply bimodal:
+phrasing-tolerant best-of-5-template scoring on the $T{=}1280$ checkpoint
+(\S\ref{sec:seeds}) to rule out template mismatch as a confound, shows
+recall is not uniform across the 14-type inventory (\S\ref{sec:entity}) but
+sharply bimodal:
 
 \begin{itemize}
   \item \textbf{Retained (top 7, best-of-5 top-1 $\geq 65\%$)}: birthplace
@@ -1337,20 +815,20 @@ confound, shows recall is not uniform across the 14-type inventory
     ($0.2\%$), award or honor ($0.0\%$).
 \end{itemize}
 
-Five of the bottom seven stay under $8\%$ even under best-of-5 scoring, which
-was specifically designed to absorb template/training-phrasing mismatch --
-so this is not a scoring artifact but a genuine failure to store (or extract)
-the fact, at the same $T{=}1280$ exposure count ($1.28\times$
+Five of the bottom seven stay under $8\%$ even under best-of-5 scoring,
+which was specifically designed to absorb template/training-phrasing
+mismatch -- so this is not a scoring artifact but a genuine failure to store
+(or extract) the fact, at the same $T{=}1280$ exposure count ($1.28\times$
 \citet{allenzhu2024capacity}'s own 1000-exposure calibration point) that
-yields near-ceiling recall for the top-7 group. Capacity is therefore not the
-binding constraint (contra the slack argument of \S\ref{sec:seeds}, which
-this result undercuts directly) -- this instead matches
-\citet{allenzhu2024capacity}'s storage-vs-extraction distinction (their Part
-3.1): the same model, same capacity budget, same exposure count, stores some
-relation types reliably and others not at all. Root-causing \emph{why} these
-particular five relation types fail (value-string structure was checked
-directly and does not distinguish the two groups) is left as future work,
-not a blocker for intervention experiments on the top 7.
+yields near-ceiling recall for the top-7 group. Capacity is therefore not
+the binding constraint (contra the slack argument of \S\ref{sec:seeds}) --
+this instead matches \citet{allenzhu2024capacity}'s storage-vs-extraction
+distinction (their Part 3.1): the same model, same capacity budget, same
+exposure count, stores some relation types reliably and others not at all.
+Root-causing \emph{why} these particular five relation types fail
+(value-string structure was checked directly and does not distinguish the
+two groups) is left as future work, not a blocker for intervention
+experiments on the top 7.
 
 \textbf{Scope of the restriction}: intervention experiments below restrict
 the contested-relation-type inventory (\S\ref{sec:entity}) to the top 7
@@ -1383,8 +861,8 @@ disambiguating-cue pair.
   \item[CAD] \citep{shi2023trusting} Contrasts with- and without-context
     output distributions with a fixed amplification coefficient.
   \item[COIECD] \citep{yuan2024discerning} Token-level entropy gate on CAD;
-    contrastive adjustment applied only where an entropy-based conflict signal
-    fires.
+    contrastive adjustment applied only where an entropy-based conflict
+    signal fires.
   \item[AdaCAD] \citep{wang2024adacad} Replaces CAD's fixed coefficient with a
     per-step, Jensen--Shannon-divergence-derived weight.
   \item[CoCoA] \citep{khandelwal2025cocoa} Adds confidence-aware terms
