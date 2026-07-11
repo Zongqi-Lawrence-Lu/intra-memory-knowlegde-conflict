@@ -46,8 +46,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from inference_time.dola import dola_generate, score_answers
 from inference_time.utils.model_utils import (
+    add_model_selection_args,
+    default_experiment_name,
     get_device,
-    load_model_and_tokenizer,
+    probe_dir_for,
+    resolve_model,
     setup_logging,
 )
 
@@ -64,11 +67,7 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     # Model
-    p.add_argument(
-        "--model",
-        default="gpt2",
-        help="HuggingFace model name or path to local checkpoint (.pt or directory).",
-    )
+    add_model_selection_args(p)
     p.add_argument("--device", default=None, help="cuda / cpu (auto-detected if omitted).")
     p.add_argument("--dtype", default="float32", choices=["float32", "float16", "bfloat16"])
 
@@ -113,8 +112,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--experiment_name",
-        default="dola_dynamic",
-        help="Tag used in the output filename and logs.",
+        default=None,
+        help="Tag used in the output filename and logs (default: dola_dynamic[_T{T}]).",
     )
     p.add_argument("--log_dir", default="slurm", help="Directory for log file output.")
     return p.parse_args()
@@ -206,6 +205,8 @@ def evaluate_probe(
 
 def main():
     args = parse_args()
+    if args.experiment_name is None:
+        args.experiment_name = default_experiment_name("dola_dynamic", args)
     setup_logging(args.log_dir, args.experiment_name)
     logger.info("Starting DoLa experiment: %s", args.experiment_name)
     logger.info("Args: %s", vars(args))
@@ -216,10 +217,12 @@ def main():
         "bfloat16": torch.bfloat16,
     }
     device = get_device(args.device)
-    model, tokenizer = load_model_and_tokenizer(
-        args.model, device=str(device), dtype=dtype_map[args.dtype]
-    )
+    model, tokenizer = resolve_model(args, device=str(device), dtype=dtype_map[args.dtype])
     logger.info("Model ready.  n_layer=%d", model.config.n_layer)
+
+    pdir = probe_dir_for(args)
+    if args.probe_file is None and pdir is not None:
+        args.probe_file = str(pdir / "probes.json")
 
     if args.probe_file:
         with open(args.probe_file) as f:

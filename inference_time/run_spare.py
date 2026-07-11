@@ -45,8 +45,11 @@ from inference_time.spare import (
     score_answers,
 )
 from inference_time.utils.model_utils import (
+    add_model_selection_args,
+    default_experiment_name,
     get_device,
-    load_model_and_tokenizer,
+    probe_dir_for,
+    resolve_model,
     setup_logging,
 )
 from inference_time.utils.steering_utils import capture_activation
@@ -80,7 +83,7 @@ def parse_args() -> argparse.Namespace:
         description="Run SpARE SAE-feature steering on a probe set.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--model", default="gpt2")
+    add_model_selection_args(p)
     p.add_argument("--device", default=None)
     p.add_argument("--dtype", default="float32", choices=["float32", "float16", "bfloat16"])
     p.add_argument("--sae_path", default=None, help="Pre-trained SAE checkpoint. If omitted, fits a demo-only SAE.")
@@ -97,7 +100,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--top_p", type=float, default=1.0)
     p.add_argument("--repetition_penalty", type=float, default=1.0)
     p.add_argument("--results_dir", default="results")
-    p.add_argument("--experiment_name", default="spare_default")
+    p.add_argument("--experiment_name", default=None, help="default: spare_default[_T{T}]")
     p.add_argument("--log_dir", default="slurm")
     return p.parse_args()
 
@@ -132,16 +135,33 @@ def evaluate_probe(model, tokenizer, probe: dict, vector, layer, args, device) -
 
 def main():
     args = parse_args()
+    if args.experiment_name is None:
+        args.experiment_name = default_experiment_name("spare_default", args)
     setup_logging(args.log_dir, args.experiment_name)
     logger.info("Starting SpARE experiment: %s", args.experiment_name)
     logger.info("Args: %s", vars(args))
 
     dtype_map = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}
     device = get_device(args.device)
-    model, tokenizer = load_model_and_tokenizer(args.model, device=str(device), dtype=dtype_map[args.dtype])
+    model, tokenizer = resolve_model(args, device=str(device), dtype=dtype_map[args.dtype])
 
     layer = args.layer if args.layer is not None else model.config.n_layer // 2
     logger.info("Steering layer: %d / %d", layer, model.config.n_layer)
+
+    pdir = probe_dir_for(args)
+    if args.pairs_file is None and pdir is not None:
+        args.pairs_file = str(pdir / "pairs.json")
+    if args.probe_file is None and pdir is not None:
+        args.probe_file = str(pdir / "probes.json")
+
+    if args.T is not None and not args.sae_path:
+        logger.warning(
+            "--T=%d given without --sae_path: falling back to a DEMO-ONLY SAE fit on the "
+            "fly (see this project's module docstring). No real SAE has been trained for "
+            "this project yet -- results below are NOT a real SpARE evaluation, only a "
+            "structural smoke test of the pipeline.",
+            args.T,
+        )
 
     if args.pairs_file:
         with open(args.pairs_file) as f:

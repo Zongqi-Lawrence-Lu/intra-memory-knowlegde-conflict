@@ -26,6 +26,8 @@ from typing import Dict, List, Optional
 import torch
 import torch.nn.functional as F
 
+from inference_time.utils.model_utils import join_prompt_answer
+
 logger = logging.getLogger(__name__)
 
 
@@ -171,8 +173,8 @@ def score_answers(
     scores: Dict[str, float] = {}
 
     for ans in answers:
-        cued_full = cued_prompt + ans
-        uncued_full = uncued_prompt + ans
+        cued_full = join_prompt_answer(cued_prompt, ans)
+        uncued_full = join_prompt_answer(uncued_prompt, ans)
 
         cued_enc = tokenizer(cued_full, return_tensors="pt").to(device)
         uncued_enc = tokenizer(uncued_full, return_tensors="pt").to(device)

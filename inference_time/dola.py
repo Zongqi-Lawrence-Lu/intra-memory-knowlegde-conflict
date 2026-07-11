@@ -19,6 +19,8 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.nn.functional as F
 
+from inference_time.utils.model_utils import join_prompt_answer
+
 logger = logging.getLogger(__name__)
 
 
@@ -237,7 +239,7 @@ def score_answers(
 
     with torch.no_grad():
         for ans in answers:
-            full_text = prompt + ans
+            full_text = join_prompt_answer(prompt, ans)
             enc = tokenizer(full_text, return_tensors="pt").to(device)
             prompt_len = tokenizer(prompt, return_tensors="pt")["input_ids"].shape[1]
             input_ids = enc["input_ids"]

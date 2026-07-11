@@ -20,7 +20,14 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from inference_time.coiecd import coiecd_generate, score_answers
-from inference_time.utils.model_utils import get_device, load_model_and_tokenizer, setup_logging
+from inference_time.utils.model_utils import (
+    add_model_selection_args,
+    default_experiment_name,
+    get_device,
+    probe_dir_for,
+    resolve_model,
+    setup_logging,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +53,7 @@ def parse_args() -> argparse.Namespace:
         description="Run COIECD decoding on a probe set.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--model", default="gpt2")
+    add_model_selection_args(p)
     p.add_argument("--device", default=None)
     p.add_argument("--dtype", default="float32", choices=["float32", "float16", "bfloat16"])
     p.add_argument("--probe_file", default=None)
@@ -57,7 +64,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--top_p", type=float, default=1.0)
     p.add_argument("--repetition_penalty", type=float, default=1.0)
     p.add_argument("--results_dir", default="results")
-    p.add_argument("--experiment_name", default="coiecd_alpha1_tau0.1")
+    p.add_argument("--experiment_name", default=None, help="default: coiecd_alpha1_tau0.1[_T{T}]")
     p.add_argument("--log_dir", default="slurm")
     return p.parse_args()
 
@@ -105,13 +112,19 @@ def evaluate_probe(model, tokenizer, probe: dict, args, device) -> dict:
 
 def main():
     args = parse_args()
+    if args.experiment_name is None:
+        args.experiment_name = default_experiment_name("coiecd_alpha1_tau0.1", args)
     setup_logging(args.log_dir, args.experiment_name)
     logger.info("Starting COIECD experiment: %s", args.experiment_name)
     logger.info("Args: %s", vars(args))
 
     dtype_map = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16}
     device = get_device(args.device)
-    model, tokenizer = load_model_and_tokenizer(args.model, device=str(device), dtype=dtype_map[args.dtype])
+    model, tokenizer = resolve_model(args, device=str(device), dtype=dtype_map[args.dtype])
+
+    pdir = probe_dir_for(args)
+    if args.probe_file is None and pdir is not None:
+        args.probe_file = str(pdir / "probes_cueA.json")
 
     if args.probe_file:
         with open(args.probe_file) as f:
