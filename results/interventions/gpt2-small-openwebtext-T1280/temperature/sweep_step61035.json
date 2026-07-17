@@ -1,0 +1,1311 @@
+{
+  "source_recall_json": "results/gpt2-small-openwebtext-T1280/recall_eval_step61035.json",
+  "checkpoint": "output/gpt2-small-openwebtext-T1280/checkpoints/best",
+  "split": "test",
+  "n_entities": 210,
+  "n_entities_skipped": 0,
+  "temperatures": [
+    0.1,
+    0.2,
+    0.3,
+    0.4,
+    0.5,
+    0.6,
+    0.7,
+    0.8,
+    0.9,
+    1.0,
+    1.1,
+    1.2,
+    1.3,
+    1.4,
+    1.5,
+    1.6,
+    1.7,
+    1.8,
+    1.9,
+    2.0
+  ],
+  "sweep": [
+    {
+      "temperature": 0.1,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 5.49700009208752,
+      "overall_mean_kl_to_proportional_target": 5.030935781580683,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 7.037868741145675,
+          "mean_kl_to_proportional_target": 6.34472156058573,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 8.865830657606733,
+          "mean_kl_to_proportional_target": 8.204267419448751,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 7.484231475640342,
+          "mean_kl_to_proportional_target": 6.921896331021533,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 6.021867111711361,
+          "mean_kl_to_proportional_target": 5.599158023905371,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 2.6212597390019043,
+          "mean_kl_to_proportional_target": 2.3245444824182693,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.9509428274191013,
+          "mean_kl_to_proportional_target": 0.7910268721044446,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 0.2,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 3.40281937009794,
+      "overall_mean_kl_to_proportional_target": 2.9367550595911034,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 4.218015697870011,
+          "mean_kl_to_proportional_target": 3.5248685173100656,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 5.247590826715639,
+          "mean_kl_to_proportional_target": 4.5860275885576565,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 4.699393941037398,
+          "mean_kl_to_proportional_target": 4.137058796418589,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 3.421337638468131,
+          "mean_kl_to_proportional_target": 2.9986285506621404,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 2.0274248236814842,
+          "mean_kl_to_proportional_target": 1.7307095670978492,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8031532928149773,
+          "mean_kl_to_proportional_target": 0.6432373375003205,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 0.3,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 2.3597108335682746,
+      "overall_mean_kl_to_proportional_target": 1.8936465230614383,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 2.9087487322815835,
+          "mean_kl_to_proportional_target": 2.2156015517216385,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 3.5532774054162193,
+          "mean_kl_to_proportional_target": 2.891714167258237,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 3.260891948275824,
+          "mean_kl_to_proportional_target": 2.6985568036570156,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 2.340786911478908,
+          "mean_kl_to_proportional_target": 1.918077823672917,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.456514020356467,
+          "mean_kl_to_proportional_target": 1.1597987637728322,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.6380459836006465,
+          "mean_kl_to_proportional_target": 0.47813002828598966,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 0.4,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 1.809672737910146,
+      "overall_mean_kl_to_proportional_target": 1.3436084274033095,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 2.234029889637941,
+          "mean_kl_to_proportional_target": 1.540882709077996,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 2.706073118736548,
+          "mean_kl_to_proportional_target": 2.044509880578566,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 2.493628401100795,
+          "mean_kl_to_proportional_target": 1.9312932564819867,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.7881323953677415,
+          "mean_kl_to_proportional_target": 1.3654233075617506,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.12682664571217,
+          "mean_kl_to_proportional_target": 0.8301113891285352,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.5093459769056798,
+          "mean_kl_to_proportional_target": 0.34943002159102315,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 0.5,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 1.479089569254199,
+      "overall_mean_kl_to_proportional_target": 1.0130252587473625,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.840533832580766,
+          "mean_kl_to_proportional_target": 1.147386652020821,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 2.2040441117702194,
+          "mean_kl_to_proportional_target": 1.5424808736122373,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 2.0315240900975953,
+          "mean_kl_to_proportional_target": 1.4691889454787868,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.4638366209304585,
+          "mean_kl_to_proportional_target": 1.0411275331244676,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.9202086689899472,
+          "mean_kl_to_proportional_target": 0.6234934124063124,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.4143900911562069,
+          "mean_kl_to_proportional_target": 0.25447413584155015,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 0.6,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 1.264279150267644,
+      "overall_mean_kl_to_proportional_target": 0.7982148397608075,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.5864672713075325,
+          "mean_kl_to_proportional_target": 0.8933200907475871,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.8746916716372477,
+          "mean_kl_to_proportional_target": 1.2131284334792656,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.730591716121034,
+          "mean_kl_to_proportional_target": 1.1682565715022257,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.2536404942947266,
+          "mean_kl_to_proportional_target": 0.8309314064887356,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.7868252434626155,
+          "mean_kl_to_proportional_target": 0.49010998687898066,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.35345850478270746,
+          "mean_kl_to_proportional_target": 0.1935425494680507,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 0.7,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 1.115325792200227,
+      "overall_mean_kl_to_proportional_target": 0.6492614816933906,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.4110111974632382,
+          "mean_kl_to_proportional_target": 0.7178640169032928,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.6440666385382436,
+          "mean_kl_to_proportional_target": 0.9825034003802616,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.5213737414192758,
+          "mean_kl_to_proportional_target": 0.9590385968004677,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.1084230496525365,
+          "mean_kl_to_proportional_target": 0.6857139618465455,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.6949366376632146,
+          "mean_kl_to_proportional_target": 0.3982213810795797,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.31214348846485307,
+          "mean_kl_to_proportional_target": 0.15222753315019633,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 0.8,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 1.0072657267674332,
+      "overall_mean_kl_to_proportional_target": 0.5412014162605969,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.2838747649174396,
+          "mean_kl_to_proportional_target": 0.5907275843574943,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.4750906529735954,
+          "mean_kl_to_proportional_target": 0.8135274148156133,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.3690449628488217,
+          "mean_kl_to_proportional_target": 0.8067098182300133,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.0035834742995102,
+          "mean_kl_to_proportional_target": 0.5808743864935194,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.6288045189759454,
+          "mean_kl_to_proportional_target": 0.3320892623923105,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.28319598658928746,
+          "mean_kl_to_proportional_target": 0.1232800312746307,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 0.9,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 0.926239312501055,
+      "overall_mean_kl_to_proportional_target": 0.46017500199421857,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.1883577977394948,
+          "mean_kl_to_proportional_target": 0.49521061717954945,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.34707633179648,
+          "mean_kl_to_proportional_target": 0.6855130936384979,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.2542340170225872,
+          "mean_kl_to_proportional_target": 0.6918988724037789,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.925441911185237,
+          "mean_kl_to_proportional_target": 0.5027328233792461,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.5797610568599109,
+          "mean_kl_to_proportional_target": 0.28304580027627596,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.26256476040261995,
+          "mean_kl_to_proportional_target": 0.10264880508796319,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 1.0,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 0.8639430591672536,
+      "overall_mean_kl_to_proportional_target": 0.39787874866041717,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.1145417012272318,
+          "mean_kl_to_proportional_target": 0.4213945206672866,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.2475574837574834,
+          "mean_kl_to_proportional_target": 0.5859942455995012,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.1653319985018928,
+          "mean_kl_to_proportional_target": 0.6029968538830844,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8657855098437011,
+          "mean_kl_to_proportional_target": 0.44307642203771014,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.5426385691930081,
+          "mean_kl_to_proportional_target": 0.24592331260937328,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.24780309248020413,
+          "mean_kl_to_proportional_target": 0.08788713716554737,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 1.1,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 0.8151048430575231,
+      "overall_mean_kl_to_proportional_target": 0.3490405325506867,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.0561886176627038,
+          "mean_kl_to_proportional_target": 0.36304143710275844,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.1685754578518384,
+          "mean_kl_to_proportional_target": 0.5070122196938563,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.0949795478388602,
+          "mean_kl_to_proportional_target": 0.5326444032200518,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8193873434881856,
+          "mean_kl_to_proportional_target": 0.3966782556821948,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.514157320697675,
+          "mean_kl_to_proportional_target": 0.21744206411404013,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.23734077080587546,
+          "mean_kl_to_proportional_target": 0.07742481549121871,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 1.2,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 0.7762205700424762,
+      "overall_mean_kl_to_proportional_target": 0.3101562595356399,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.0091927359250088,
+          "mean_kl_to_proportional_target": 0.31604555536506357,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.1048168425565907,
+          "mean_kl_to_proportional_target": 0.44325360439860867,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.0383007302821274,
+          "mean_kl_to_proportional_target": 0.4759655856633192,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.7827656696411567,
+          "mean_kl_to_proportional_target": 0.3600565818351658,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.49212822887620616,
+          "mean_kl_to_proportional_target": 0.19541297229257132,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.23011921297376767,
+          "mean_kl_to_proportional_target": 0.07020325765911091,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 1.3,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 0.7448736576983356,
+      "overall_mean_kl_to_proportional_target": 0.2788093471914992,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.9707493283085018,
+          "mean_kl_to_proportional_target": 0.27760214774855657,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.0526055145919908,
+          "mean_kl_to_proportional_target": 0.39104227643400863,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.9919474103668892,
+          "mean_kl_to_proportional_target": 0.4296122657480808,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.7535154441197276,
+          "mean_kl_to_proportional_target": 0.33080635631373667,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.4750290965855555,
+          "mean_kl_to_proportional_target": 0.1783138400019206,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.22539515221734882,
+          "mean_kl_to_proportional_target": 0.06547919690269209,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 1.4,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 0.7193461216150688,
+      "overall_mean_kl_to_proportional_target": 0.2532818111082325,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.9388824280562428,
+          "mean_kl_to_proportional_target": 0.2457352474962975,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 1.0093229970431314,
+          "mean_kl_to_proportional_target": 0.3477597588851494,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.9535513005309534,
+          "mean_kl_to_proportional_target": 0.3912161559121451,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.7299257104526425,
+          "mean_kl_to_proportional_target": 0.3072166226466516,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.4617655019882511,
+          "mean_kl_to_proportional_target": 0.16505024540461627,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.2226287916191919,
+          "mean_kl_to_proportional_target": 0.06271283630453517,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 1.5,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 0.6983852359217033,
+      "overall_mean_kl_to_proportional_target": 0.2323209254148669,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.9121632673620653,
+          "mean_kl_to_proportional_target": 0.2190160868021201,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.9730583563634597,
+          "mean_kl_to_proportional_target": 0.3114951182054776,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.9213946409251161,
+          "mean_kl_to_proportional_target": 0.3590594963063078,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.7107494015427932,
+          "mean_kl_to_proportional_target": 0.2880403137368023,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.45152881141287365,
+          "mean_kl_to_proportional_target": 0.15481355482923878,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.2214169379239117,
+          "mean_kl_to_proportional_target": 0.061500982609254955,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 1.6,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 0.6810577129022418,
+      "overall_mean_kl_to_proportional_target": 0.2149934023954054,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8895355625563691,
+          "mean_kl_to_proportional_target": 0.1963883819964238,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.9423880165156306,
+          "mean_kl_to_proportional_target": 0.2808247783576485,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8942043981438255,
+          "mean_kl_to_proportional_target": 0.3318692535250171,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.6950589400898953,
+          "mean_kl_to_proportional_target": 0.2723498522839044,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.4437080380730885,
+          "mean_kl_to_proportional_target": 0.1469927814894537,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.22145132203464168,
+          "mean_kl_to_proportional_target": 0.061535366719984934,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 1.7,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 0.6666553631203586,
+      "overall_mean_kl_to_proportional_target": 0.20059105261352214,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8702033167691058,
+          "mean_kl_to_proportional_target": 0.1770561362091605,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.9162325133654428,
+          "mean_kl_to_proportional_target": 0.2546692752074606,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8710193312430735,
+          "mean_kl_to_proportional_target": 0.3086841866242652,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.6821524163029556,
+          "mean_kl_to_proportional_target": 0.25944332849696466,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.43783295745561285,
+          "mean_kl_to_proportional_target": 0.14111770087197803,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.2224916435859606,
+          "mean_kl_to_proportional_target": 0.06257568827130386,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 1.8,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 0.6546322142807425,
+      "overall_mean_kl_to_proportional_target": 0.18856790377390611,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8535565997754436,
+          "mean_kl_to_proportional_target": 0.16040941921549834,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8937605850080393,
+          "mean_kl_to_proportional_target": 0.23219734685005722,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8511016457685585,
+          "mean_kl_to_proportional_target": 0.28876650114975017,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.671490778225338,
+          "mean_kl_to_proportional_target": 0.24878169041934703,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.4335361216312825,
+          "mean_kl_to_proportional_target": 0.13682086504764768,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.224347555275793,
+          "mean_kl_to_proportional_target": 0.06443159996113627,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 1.9,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 0.6445614986535253,
+      "overall_mean_kl_to_proportional_target": 0.17849718814668897,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8391211619969074,
+          "mean_kl_to_proportional_target": 0.1459739814369622,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8743233457231749,
+          "mean_kl_to_proportional_target": 0.21276010756519276,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8338768036544313,
+          "mean_kl_to_proportional_target": 0.271541659035623,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.6626546935863041,
+          "mean_kl_to_proportional_target": 0.23994560578031324,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.43052672495211197,
+          "mean_kl_to_proportional_target": 0.13381146836847715,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.22686626200822213,
+          "mean_kl_to_proportional_target": 0.0669503066935654,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    },
+    {
+      "temperature": 2.0,
+      "n_entities_scored": 210,
+      "monotonicity_violations": 0,
+      "symmetry_at_balance_mean_logit_gap": 0.33135579424245015,
+      "overall_mean_cross_entropy_to_proportional_target": 0.6361055560001435,
+      "overall_mean_kl_to_proportional_target": 0.17004124549330715,
+      "by_split_level": [
+        {
+          "n_a": 640,
+          "n_b": 640,
+          "freq_gap": 0,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8265234407273521,
+          "mean_kl_to_proportional_target": 0.13337626016740675,
+          "mean_raw_logit_gap": 0.33135579424245015
+        },
+        {
+          "n_a": 800,
+          "n_b": 480,
+          "freq_gap": 320,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8574081221616036,
+          "mean_kl_to_proportional_target": 0.19584488400362143,
+          "mean_raw_logit_gap": 0.5081399708560536
+        },
+        {
+          "n_a": 960,
+          "n_b": 320,
+          "freq_gap": 640,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.8188916074349877,
+          "mean_kl_to_proportional_target": 0.2565564628161794,
+          "mean_raw_logit_gap": 0.8101857528489614
+        },
+        {
+          "n_a": 1088,
+          "n_b": 192,
+          "freq_gap": 896,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.6553142605391953,
+          "mean_kl_to_proportional_target": 0.23260517273320433,
+          "mean_raw_logit_gap": 1.5440962277060108
+        },
+        {
+          "n_a": 1168,
+          "n_b": 112,
+          "freq_gap": 1056,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.4285721488233204,
+          "mean_kl_to_proportional_target": 0.13185689223968552,
+          "mean_raw_logit_gap": 3.665822129997292
+        },
+        {
+          "n_a": 1232,
+          "n_b": 48,
+          "freq_gap": 1184,
+          "n_entities": 35,
+          "mean_cross_entropy_to_proportional_target": 0.22992375631440218,
+          "mean_kl_to_proportional_target": 0.07000780099974542,
+          "mean_raw_logit_gap": 5.330786799032773
+        }
+      ]
+    }
+  ]
+}
