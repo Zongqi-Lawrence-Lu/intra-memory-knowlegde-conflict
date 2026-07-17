@@ -978,6 +978,191 @@ wins.
     internal access.
 \end{description}
 
+\section{Mechanistic Interpretability: Localization and Causal Control}
+\label{sec:mechinterp}
+
+\S\ref{sec:decoding}--\S\ref{sec:sampling} ask whether a given method shifts
+the model's output toward one side of a contested pair; this section asks a
+different, prior question -- \emph{how} the model stores and arbitrates
+between the two sides internally -- and targets a causal, continuously
+controllable intervention rather than a binary flip. Status: a rough plan
+under consideration, not yet run or resourced; recorded here per CLAUDE.md
+\S5 before any job is scoped or submitted.
+
+\textbf{Relation to Baseline Methods}: this is a new analysis axis, not a
+ninth baseline. It shares the relation-type-restricted population and
+$T{=}1280$ checkpoint of \S\ref{sec:relation-restriction} (both sides of a
+contested pair must already be confirmed stored for a localization question
+to be meaningful), and reuses the disambiguated-contrastive-pair construction
+of \S\ref{sec:steering} for cache/probe inputs. Everything downstream of that
+-- layerwise probing, causal tracing, path patching, and dial-style steering
+built from a causally-\emph{identified} locus rather than a fixed a-priori
+layer -- is new. Implementation lives under \texttt{mech\_interp/}, kept
+separate from \texttt{inference\_time/} (\S\ref{sec:decoding}--\S\ref{sec:sampling},
+which already exists and ships candidate mitigations) and
+\texttt{training\_time/}: \texttt{mech\_interp/} code reads a fixed, frozen
+checkpoint and writes to \texttt{results/mech\_interp/}, and does not itself
+select or ship a mitigation.
+
+\subsection{Phase 0: Behavioral Scaffolding}
+\label{sec:mechinterp-scaffolding}
+
+Cheap, run first, and only correlational-vs-causal expectation-setting -- no
+activation access required.
+
+\begin{itemize}
+  \item For each contested pair, build a generation probe (matching
+    \S\ref{sec:eval}'s existing per-fact recall scoring) and a verification
+    probe (forced-choice true/false over each side) for both $A$ and $B$.
+  \item \textbf{Multi-verse check}: does the model \emph{generate} one side
+    but \emph{verify} both as true? \citet{davidson2026futureoffacts} reports
+    verification is learned before generation and survives continual
+    learning more robustly, producing exactly this pattern -- a superseded
+    side stays verified true even once it is no longer generated. Finding
+    this pattern here (vs.\ clean suppression, where the losing side is
+    verified false too) sets the baseline expectation for every later phase:
+    a multi-verse result predicts Phase 3 will find full-fidelity
+    dual-storage, while clean suppression is more consistent with one side
+    being genuinely overwritten or never separately represented.
+\end{itemize}
+
+\subsection{Phase 1: Representational Localization (Correlational)}
+\label{sec:mechinterp-reploc}
+
+\begin{itemize}
+  \item At every layer and at the key token positions (entity-mention token,
+    final token before the divergent-token scoring position of
+    \S\ref{sec:divergence}), train linear probes separately for ``does this
+    activation encode $A$'' and ``does this activation encode $B$,'' using
+    the contrastive-pair construction of \S\ref{sec:steering}.
+  \item Compute the angle between the two probes' weight directions at each
+    layer/position. Near-orthogonal is evidence for separable subspaces;
+    small angle / high cosine overlap is evidence for superposition.
+  \item Also probe for (i) a recency/exposure-order direction, per
+    \citet{krasheninnikov2025freshinmemory}'s finding that training-order
+    recency is linearly decodable from activations, and (ii) a
+    conflict-ratio direction, keyed to the exposure split $(n_A, n_B)$ of
+    \S\ref{sec:scale} and the proportional target $q_A = n_A/T$ of
+    \S\ref{sec:xent-metric}. Check whether ``which side wins'' correlates
+    with either of these directions rather than with a dedicated
+    fact-identity direction -- a way this phase's localization claim could
+    turn out to be confounded by a simpler, already-characterized signal.
+\end{itemize}
+
+\subsection{Phase 2: Causal Localization}
+\label{sec:mechinterp-causal}
+
+The causal test proper, following the activation-patching / causal-tracing
+paradigm of \citet{meng2022rome} (localizing a single factual association)
+and \citet{meng2023memit} (scaling the same causal signal to many facts):
+run the model on an ``$A$'' context, cache all layer activations; run on the
+matched ``$B$'' context; patch $A$'s cached activations into the $B$ run (and
+the reverse), one layer/position at a time, measuring how much the output
+flips back.
+
+\begin{itemize}
+  \item \textbf{Three granularities}: (i) full residual stream at a layer;
+    (ii) individual attention heads, via path patching -- the same technique
+    \S\ref{sec:attention}'s PH3 baseline \citep{jin2024cutting} already
+    applies to knowledge-conflict head attribution, repurposed here for
+    localization rather than pruning; (iii) individual MLP
+    neurons/blocks, per ROME/MEMIT's own localization result that factual
+    association storage concentrates in mid-layer MLPs.
+  \item \textbf{Output}: a causal map of which components are
+    \emph{necessary} (ablating kills the effect) and \emph{sufficient}
+    (patching alone reproduces it) for expressing $A$ over $B$.
+  \item \textbf{Superposition-vs-separation test}: if the same small
+    head/neuron set drives both $A$-selection and $B$-selection (opposite
+    sign or direction on the same component), that is superposition in one
+    component. If disjoint component sets each causally control one side
+    independently, that is closer to separate storage. This is the direct
+    causal counterpart to Phase 1's angle measurement.
+\end{itemize}
+
+\subsection{Phase 3: Suppression vs. Erasure}
+\label{sec:mechinterp-suppression}
+
+Using the causal component(s) identified in Phase 2: ablate/patch them, then
+apply the logit lens \citep{nostalgebraist2020logitlens} at earlier layers to
+check whether the suppressed side is still fully recoverable elsewhere in the
+network, as in ROME-edit's own ``suppression not erasure'' finding
+\citep{meng2022rome}. This directly resolves the project's earlier
+skepticism about ``both sides showing up in the logits'': confirming
+recoverability upgrades that observation from \emph{both are in the logits}
+to \emph{both are represented at full fidelity pre-suppression, and a
+specific identified component performs the suppression}.
+
+\subsection{Phase 4: Continuous Control}
+\label{sec:mechinterp-dial}
+
+Turns Phase 2's flip into a dial, and is the target deliverable of this
+section (per \S\ref{sec:mechinterp}'s framing).
+
+\begin{itemize}
+  \item Build a steering vector from the difference between ``expressing
+    $A$'' and ``expressing $B$'' activations, taken \emph{at the causal locus
+    identified in Phase 2} -- unlike \S\ref{sec:steering}'s CAA baseline,
+    which steers at a layer fixed a priori rather than one selected by a
+    causal test.
+  \item Scale the vector continuously; record the model's output
+    distribution over $\{A, B\}$ as a function of steering magnitude.
+  \item Compare the resulting curve against the true exposure-ratio target
+    $q_A = n_A/T$ of \S\ref{sec:calibration}/\S\ref{sec:xent-metric}. A curve
+    that can be dialed to hit any target ratio smoothly is evidence for a
+    blended/superposed representation; discrete jumps are evidence for
+    separately stored facts behind a threshold-like selector.
+\end{itemize}
+
+\subsection{Phase 5: Sweep Across Training-Time Variables}
+\label{sec:mechinterp-sweep}
+
+Repeat Phases 1--4 across \S\ref{sec:scale}'s split-level sweep, and, once
+run, \S\ref{sec:seeds}'s exposure-budget ($T$) pilot, to test whether the
+\emph{type} of mechanism (separate vs.\ superposed; sharp vs.\ continuous)
+itself depends on these training statistics -- reconnecting the
+training-dynamics thread of \S\ref{sec:scale}--\S\ref{sec:seeds} to the
+localization thread of this section. This is the section's most likely
+source of a genuinely novel claim if it holds, e.g.\ that conflicts
+introduced with a wide early split resolve via separate localized
+components while narrow late-forming splits resolve via
+superposition/suppression.
+
+\subsection{Controls and Reporting}
+\label{sec:mechinterp-controls}
+
+\begin{itemize}
+  \item Matched clean/corrupt example pairs and random-head/neuron baselines
+    throughout, so effect sizes are interpretable against chance rather than
+    against an unnormalized raw patching effect.
+  \item At GPT-2-small's scale, full path patching across all heads is
+    tractable without the head-subsampling large-model mechanistic
+    interpretability work typically requires.
+  \item Report both the causal effect size, in the sense of
+    \citet{elazar2022measuring}'s causal framework, and Phase 1's
+    probe-orthogonality result side by side: they test the same
+    separation-vs-superposition hypothesis from causal and correlational
+    angles respectively, and agreement between them is the strongest
+    available evidence for whichever answer they converge on.
+\end{itemize}
+
+\subsection{Open Scope Items}
+\label{sec:mechinterp-module}
+
+Not yet resourced or scheduled -- to be confirmed per CLAUDE.md \S5 before
+any job is submitted:
+\begin{itemize}
+  \item Which relation types within the top-7 restriction
+    (\S\ref{sec:relation-restriction}) to prioritize for the initial pass,
+    vs.\ running all seven from the start.
+  \item Layer/position sampling budget for Phase 1's probe sweep and Phase
+    2's path-patching sweep (both tractable in full at this model scale per
+    \S\ref{sec:mechinterp-controls}, but full-grid runtime has not been
+    measured).
+  \item Whether Phase 5's sweep runs first at $T{=}1280$ alone, or extends
+    to the $T{=}80$/$T{=}320$ checkpoints already on disk
+    (\S\ref{sec:seeds}) in the same pass.
+\end{itemize}
+
 \bibliographystyle{plainnat}
 \bibliography{references}
 

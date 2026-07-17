@@ -13,7 +13,7 @@ the job would need, provided it is not over 12 hours. Use the epis conda environ
 Based on the current job, training GPT2-small shall use one single A100 (80gb). Unless the evaluation/inference
 is directly following training, a standalone inference job should use A40 gpu.
 
-3. There are three main stages that I think are needed. These are a very rough outline, and when ask you to
+3. There are four main stages that I think are needed. These are a very rough outline, and when ask you to
 run or build something, I will clearly indicate which phase we are on. 
 a) We will construct a synthetic dataset that will provide the basic training corpus. We will carefully 
 manage when the conflicting data will occur, how many times it occur, and in what forms it occur.
@@ -22,7 +22,8 @@ and evaluate their performance. There are three main classes of baselines. i) Pr
 classical knowledge conflict prompts and evaluate performance. ii) Inference-time interference, such as
 steering, patching, ablation, SAE based methods. iii) Training time interference, such as deduplication,
 reweightings, etc.
-c) We will either come up with a novel technique to better mitigate these problems, or we will use mechanistic
+c) We will use mechanistic interpretation technique to study localization and interpretation. 
+d) We will either come up with a novel technique to better mitigate these problems, or we will use mechanistic
 interpretation techniques that will determine where these happen, either during inference time or train time.
 This is just the rough guideline. Specifically, we will create an experimental_plans.tex file that acts as 
 the methods section of a paper. We will use that to make detailed decisions on the experiment and follow them

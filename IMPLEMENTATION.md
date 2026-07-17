@@ -200,7 +200,25 @@ Shared steering infrastructure:
       §5); no actual training job has been submitted.
 
 ### M8 — Phase (c): Novel technique or mechanistic localization (`mech_interp/`)
-- [ ] Scoped once M5–M7 baseline results are in and we can see where the biggest gaps are.
+Scoped in experimental_plans.tex §3 (rough plan, not yet run/resourced — confirm
+before submitting any job per CLAUDE.md §5). Separate from `inference_time/`
+(M6, ships candidate mitigations) and `training_time/` (M7): `mech_interp/` reads
+a fixed frozen checkpoint and writes `results/mech_interp/`, no mitigation shipped
+directly.
+- [ ] Phase 0 — behavioral scaffolding: generation vs.\ verification probes per
+      contested pair, multi-verse check (experimental_plans.tex §3.1).
+- [ ] Phase 1 — representational localization: per-layer/position linear probes
+      for A/B encoding, probe-direction angle, recency- and conflict-ratio-direction
+      controls (§3.2).
+- [ ] Phase 2 — causal localization: activation patching / path patching across
+      residual stream, attention heads, MLP neurons; necessary/sufficient causal
+      map (§3.3).
+- [ ] Phase 3 — suppression vs.\ erasure via logit lens on ablated/patched runs (§3.4).
+- [ ] Phase 4 — continuous control: steering dial built at the Phase-2 causal locus,
+      compared against the §sec:calibration exposure-ratio target (§3.5).
+- [ ] Phase 5 — sweep Phases 1–4 across the split-level ($T$=80) and, once run,
+      exposure-budget sweeps to test whether mechanism type depends on training
+      statistics (§3.6).
 
 ## Immediate next step
 

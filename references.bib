@@ -264,3 +264,59 @@
   archivePrefix = {arXiv},
   note      = {repeating a fixed corpus up to ~4 epochs is near-lossless vs.\ unique data; value decays with a ~16-epoch half-life}
 }
+
+@inproceedings{meng2022rome,
+  title     = {Locating and Editing Factual Associations in {GPT}},
+  author    = {Meng, Kevin and Bau, David and Andonian, Alex and Belinkov, Yonatan},
+  booktitle = {Advances in Neural Information Processing Systems 35 (NeurIPS 2022)},
+  year      = {2022},
+  eprint    = {2202.05262},
+  archivePrefix = {arXiv},
+  note      = {ROME: causal tracing via activation patching to localize factual-association storage to mid-layer MLPs, then single-fact rank-one edit}
+}
+
+@inproceedings{meng2023memit,
+  title     = {Mass-Editing Memory in a Transformer},
+  author    = {Meng, Kevin and Sharma, Arnab Sen and Andonian, Alex and Belinkov, Yonatan and Bau, David},
+  booktitle = {Proceedings of ICLR 2023},
+  year      = {2023},
+  eprint    = {2210.07229},
+  archivePrefix = {arXiv},
+  note      = {MEMIT: scales ROME-style causal-tracing-guided editing to thousands of facts via a multi-layer closed-form update}
+}
+
+@inproceedings{elazar2022measuring,
+  title     = {Measuring Causal Effects of Data Statistics on Language Model's `Factual' Predictions},
+  author    = {Elazar, Yanai and Kassner, Nora and Ravfogel, Shauli and Feder, Amir and Ravichander, Abhilasha and Mosbach, Marius and Belinkov, Yonatan and Sch{\"u}tze, Hinrich and Goldberg, Yoav},
+  year      = {2022},
+  eprint    = {2207.14251},
+  archivePrefix = {arXiv},
+  note      = {causal-effect-size framework relating training-data co-occurrence statistics to model predictions, without retraining}
+}
+
+@misc{nostalgebraist2020logitlens,
+  title     = {Interpreting {GPT}: The Logit Lens},
+  author    = {nostalgebraist},
+  year      = {2020},
+  howpublished = {LessWrong},
+  url       = {https://www.lesswrong.com/posts/AcKRB8wDpdaN6v6ru/interpreting-gpt-the-logit-lens},
+  note      = {unembeds intermediate-layer residual-stream activations to read out an early logit distribution per layer}
+}
+
+@misc{davidson2026futureoffacts,
+  title     = {The Future of Facts: Tracing the Factual Generation-Verification Gap},
+  author    = {Davidson, Tim R. and Surina, Anja and Gulcehre, Caglar},
+  year      = {2026},
+  eprint    = {2605.27564},
+  archivePrefix = {arXiv},
+  note      = {verification is learned before generation and survives continual learning more robustly, producing a `multi-verse' where a superseded answer is still verified true even though it is no longer generated}
+}
+
+@misc{krasheninnikov2025freshinmemory,
+  title     = {Fresh in Memory: Training-Order Recency Is Linearly Encoded in Language Model Activations},
+  author    = {Krasheninnikov, Dmitrii and Turner, Richard E. and Krueger, David},
+  year      = {2025},
+  eprint    = {2509.14223},
+  archivePrefix = {arXiv},
+  note      = {a linear direction in activation space separates early- from late-trained entities, generalizing to held-out entities}
+}
