@@ -200,25 +200,43 @@ Shared steering infrastructure:
       §5); no actual training job has been submitted.
 
 ### M8 — Phase (c): Novel technique or mechanistic localization (`mech_interp/`)
-Scoped in experimental_plans.tex §3 (rough plan, not yet run/resourced — confirm
-before submitting any job per CLAUDE.md §5). Separate from `inference_time/`
-(M6, ships candidate mitigations) and `training_time/` (M7): `mech_interp/` reads
-a fixed frozen checkpoint and writes `results/mech_interp/`, no mitigation shipped
-directly.
-- [ ] Phase 0 — behavioral scaffolding: generation vs.\ verification probes per
-      contested pair, multi-verse check (experimental_plans.tex §3.1).
-- [ ] Phase 1 — representational localization: per-layer/position linear probes
-      for A/B encoding, probe-direction angle, recency- and conflict-ratio-direction
-      controls (§3.2).
-- [ ] Phase 2 — causal localization: activation patching / path patching across
-      residual stream, attention heads, MLP neurons; necessary/sufficient causal
-      map (§3.3).
-- [ ] Phase 3 — suppression vs.\ erasure via logit lens on ablated/patched runs (§3.4).
-- [ ] Phase 4 — continuous control: steering dial built at the Phase-2 causal locus,
-      compared against the §sec:calibration exposure-ratio target (§3.5).
-- [ ] Phase 5 — sweep Phases 1–4 across the split-level ($T$=80) and, once run,
-      exposure-budget sweeps to test whether mechanism type depends on training
-      statistics (§3.6).
+Implemented per experimental_plans.tex §3, logic-tested locally without a GPU per
+CLAUDE.md §5 (module imports + tokenizer-only alignment checks against the real
+T=1280 population, no LM loaded/run — see `mech_interp/README.md`'s Status section).
+2026-07-17: renamed every CLI/output-dir/internal-field name to drop stage-index
+prefixes (`run_phaseN_*.py` → `run_*.py`, `results/mech_interp/<run>/phaseN_x/` →
+`.../x/`) so each stage runs standalone and is named for what it does, not its
+position in the §3 narrative — see `mech_interp/README.md` for the mapping and the
+two bugs (n_a/n_b swap in the B-clean relabeling step; a layer-index off-by-one
+between causal tracing's block-index convention and the dial's hidden_states-index
+convention) found and fixed during that pass. Separate from `inference_time/` (M6,
+ships candidate mitigations) and `training_time/` (M7): `mech_interp/` reads a
+fixed frozen checkpoint and writes `results/mech_interp/<run-name>/<stage>/`, no
+mitigation shipped directly.
+- [x] Scaffolding (`scaffolding.py`, `run_scaffolding.py`): generation vs.
+      verification probes per contested pair, multi-verse / clean-suppression /
+      mismatch / verifies-neither classification (§3.1). Standalone.
+- [x] Probing (`probing.py`, `run_probing.py`): per-layer/position
+      (`last`, `entity_mention`) linear probes for A/B encoding against a shared
+      neutral negative class, probe-direction angle, recency- (from
+      `occurrence_log.json`) and conflict-ratio-direction regression-probe controls
+      (§3.2). Standalone.
+- [x] Causal tracing (`causal_tracing.py`, `run_causal_tracing.py`): activation
+      patching / path patching across residual stream, attention heads (same
+      `attn.c_proj` pre-hook technique as `inference_time/ph3.py`), MLP blocks;
+      restoration/necessity effects, shared-vs-disjoint component classification across
+      both clean orientations. Standalone. Expensive — see module docstring for
+      per-example cost before widening `--limit-entities`/`--granularities`.
+- [x] Suppression (`suppression.py`, `run_suppression.py`): logit lens with causal
+      tracing's top necessary components ablated vs. unmodified (§3.4). Requires
+      causal tracing's output for the same `--T` (data dependency, not a naming one).
+- [x] Dial (`steering_dial.py`, `run_dial.py`): steering dial built at the
+      causal-tracing-identified locus (explicit `--layer`, or inferred from causal
+      tracing's output), compared against the §sec:calibration exposure-ratio target
+      (§3.5). `--layer` explicit skips the causal-tracing dependency.
+- [x] Sweep (`sweep.py`, `run_sweep.py`): standalone orchestrator repeating
+      probing/causal-tracing/dial across the $T$=1280 split-level sweep; cost-bounded
+      defaults, see module docstring (§3.6).
 
 ## Immediate next step
 

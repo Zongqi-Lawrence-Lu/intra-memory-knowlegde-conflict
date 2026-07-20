@@ -1,0 +1,228 @@
+{
+  "run_name": "gpt2-small-openwebtext-T1280",
+  "T": 1280,
+  "n_layer": 12,
+  "positions": [
+    "last",
+    "entity_mention"
+  ],
+  "n_entities": 840,
+  "n_a_examples": 4200,
+  "n_b_examples": 4200,
+  "n_neutral_examples": 16800,
+  "has_recency_direction": true,
+  "by_position": {
+    "last": [
+      {
+        "layer": 0,
+        "angle_a_b_degrees": 58.02779001699101,
+        "angle_a_ratio_degrees": 93.60612903112525,
+        "angle_b_ratio_degrees": 92.1564674876723,
+        "angle_a_recency_degrees": 90.98177151606079,
+        "angle_b_recency_degrees": 90.76398580759913
+      },
+      {
+        "layer": 1,
+        "angle_a_b_degrees": 59.88055307414406,
+        "angle_a_ratio_degrees": 86.23491956901478,
+        "angle_b_ratio_degrees": 84.27270077826951,
+        "angle_a_recency_degrees": 91.88287689960384,
+        "angle_b_recency_degrees": 91.8252163496253
+      },
+      {
+        "layer": 2,
+        "angle_a_b_degrees": 62.322623329329346,
+        "angle_a_ratio_degrees": 87.70160254869457,
+        "angle_b_ratio_degrees": 86.09707664155542,
+        "angle_a_recency_degrees": 87.40478848686897,
+        "angle_b_recency_degrees": 88.19957021944712
+      },
+      {
+        "layer": 3,
+        "angle_a_b_degrees": 57.032727918946236,
+        "angle_a_ratio_degrees": 85.09919894562356,
+        "angle_b_ratio_degrees": 85.05894626518251,
+        "angle_a_recency_degrees": 88.8801689239317,
+        "angle_b_recency_degrees": 89.76970610511427
+      },
+      {
+        "layer": 4,
+        "angle_a_b_degrees": 55.2981910821988,
+        "angle_a_ratio_degrees": 86.61170793732225,
+        "angle_b_ratio_degrees": 86.51802641979765,
+        "angle_a_recency_degrees": 86.18181814293229,
+        "angle_b_recency_degrees": 87.35909485090357
+      },
+      {
+        "layer": 5,
+        "angle_a_b_degrees": 60.74489036173874,
+        "angle_a_ratio_degrees": 88.34184225864546,
+        "angle_b_ratio_degrees": 84.72271889075398,
+        "angle_a_recency_degrees": 88.14879613453341,
+        "angle_b_recency_degrees": 86.51374173470938
+      },
+      {
+        "layer": 6,
+        "angle_a_b_degrees": 65.06732148472412,
+        "angle_a_ratio_degrees": 88.91104722210129,
+        "angle_b_ratio_degrees": 86.26612177450446,
+        "angle_a_recency_degrees": 86.58261660240885,
+        "angle_b_recency_degrees": 85.4702362611512
+      },
+      {
+        "layer": 7,
+        "angle_a_b_degrees": 64.06241501833333,
+        "angle_a_ratio_degrees": 89.45513014832459,
+        "angle_b_ratio_degrees": 87.55724714773247,
+        "angle_a_recency_degrees": 90.59844313451862,
+        "angle_b_recency_degrees": 87.12294698817925
+      },
+      {
+        "layer": 8,
+        "angle_a_b_degrees": 65.07071655828335,
+        "angle_a_ratio_degrees": 86.69146810605447,
+        "angle_b_ratio_degrees": 87.44976066762209,
+        "angle_a_recency_degrees": 89.68078033295964,
+        "angle_b_recency_degrees": 86.50499161020817
+      },
+      {
+        "layer": 9,
+        "angle_a_b_degrees": 58.051164781458695,
+        "angle_a_ratio_degrees": 90.77556482367848,
+        "angle_b_ratio_degrees": 88.15482712731104,
+        "angle_a_recency_degrees": 90.09181120199024,
+        "angle_b_recency_degrees": 90.85320422877284
+      },
+      {
+        "layer": 10,
+        "angle_a_b_degrees": 54.627057845143824,
+        "angle_a_ratio_degrees": 90.33437415568382,
+        "angle_b_ratio_degrees": 91.40032786512275,
+        "angle_a_recency_degrees": 89.96642492255278,
+        "angle_b_recency_degrees": 90.23950845781567
+      },
+      {
+        "layer": 11,
+        "angle_a_b_degrees": 57.86677817582739,
+        "angle_a_ratio_degrees": 92.37082171706089,
+        "angle_b_ratio_degrees": 93.84400859398932,
+        "angle_a_recency_degrees": 88.79743908335084,
+        "angle_b_recency_degrees": 89.42415733398165
+      },
+      {
+        "layer": 12,
+        "angle_a_b_degrees": 55.92645477465348,
+        "angle_a_ratio_degrees": 90.74479953046773,
+        "angle_b_ratio_degrees": 90.2397559209353,
+        "angle_a_recency_degrees": 88.80461384694141,
+        "angle_b_recency_degrees": 85.02259652508839
+      }
+    ],
+    "entity_mention": [
+      {
+        "layer": 0,
+        "angle_a_b_degrees": 0.0,
+        "angle_a_ratio_degrees": 90.92562737198219,
+        "angle_b_ratio_degrees": 90.92562737198219,
+        "angle_a_recency_degrees": 92.78551982710846,
+        "angle_b_recency_degrees": 92.78551982710846
+      },
+      {
+        "layer": 1,
+        "angle_a_b_degrees": 46.513488927846346,
+        "angle_a_ratio_degrees": 91.73463698443182,
+        "angle_b_ratio_degrees": 90.3259170404678,
+        "angle_a_recency_degrees": 91.84270183942088,
+        "angle_b_recency_degrees": 90.19062372768894
+      },
+      {
+        "layer": 2,
+        "angle_a_b_degrees": 53.015891273807846,
+        "angle_a_ratio_degrees": 87.0691663846568,
+        "angle_b_ratio_degrees": 88.38822969814763,
+        "angle_a_recency_degrees": 89.57752631989398,
+        "angle_b_recency_degrees": 89.30689466556045
+      },
+      {
+        "layer": 3,
+        "angle_a_b_degrees": 38.40981520013866,
+        "angle_a_ratio_degrees": 89.46659640914893,
+        "angle_b_ratio_degrees": 89.22100285050887,
+        "angle_a_recency_degrees": 87.70923265184662,
+        "angle_b_recency_degrees": 88.05968467334314
+      },
+      {
+        "layer": 4,
+        "angle_a_b_degrees": 63.2766825296721,
+        "angle_a_ratio_degrees": 89.84453333785662,
+        "angle_b_ratio_degrees": 89.33604624988618,
+        "angle_a_recency_degrees": 88.9275280919031,
+        "angle_b_recency_degrees": 86.04290538503285
+      },
+      {
+        "layer": 5,
+        "angle_a_b_degrees": 61.07167342844564,
+        "angle_a_ratio_degrees": 89.88278357343272,
+        "angle_b_ratio_degrees": 91.68697260577973,
+        "angle_a_recency_degrees": 90.38233801759613,
+        "angle_b_recency_degrees": 90.47570604964871
+      },
+      {
+        "layer": 6,
+        "angle_a_b_degrees": 97.94592975763959,
+        "angle_a_ratio_degrees": 89.00353690570927,
+        "angle_b_ratio_degrees": 88.91135100692568,
+        "angle_a_recency_degrees": 88.19409439197777,
+        "angle_b_recency_degrees": 88.6198285137865
+      },
+      {
+        "layer": 7,
+        "angle_a_b_degrees": 75.21758708329352,
+        "angle_a_ratio_degrees": 88.80761754108323,
+        "angle_b_ratio_degrees": 91.57992894959922,
+        "angle_a_recency_degrees": 89.87451288948112,
+        "angle_b_recency_degrees": 91.85049315500854
+      },
+      {
+        "layer": 8,
+        "angle_a_b_degrees": 86.01197184036744,
+        "angle_a_ratio_degrees": 83.0951936621899,
+        "angle_b_ratio_degrees": 86.38923945620715,
+        "angle_a_recency_degrees": 88.53705603665924,
+        "angle_b_recency_degrees": 87.33072551413899
+      },
+      {
+        "layer": 9,
+        "angle_a_b_degrees": 94.73764991829448,
+        "angle_a_ratio_degrees": 90.38988277318346,
+        "angle_b_ratio_degrees": 88.89945865136453,
+        "angle_a_recency_degrees": 85.19255370435513,
+        "angle_b_recency_degrees": 91.17013383209344
+      },
+      {
+        "layer": 10,
+        "angle_a_b_degrees": 70.80552468612304,
+        "angle_a_ratio_degrees": 93.86032350242172,
+        "angle_b_ratio_degrees": 88.38992745771073,
+        "angle_a_recency_degrees": 86.2242734476149,
+        "angle_b_recency_degrees": 87.54743943955646
+      },
+      {
+        "layer": 11,
+        "angle_a_b_degrees": 67.08680351654239,
+        "angle_a_ratio_degrees": 88.1361412548964,
+        "angle_b_ratio_degrees": 94.60178269871008,
+        "angle_a_recency_degrees": 89.72489890685927,
+        "angle_b_recency_degrees": 90.15756420505554
+      },
+      {
+        "layer": 12,
+        "angle_a_b_degrees": 64.41773411166929,
+        "angle_a_ratio_degrees": 87.77276287262619,
+        "angle_b_ratio_degrees": 86.67239035518881,
+        "angle_a_recency_degrees": 89.48249023408819,
+        "angle_b_recency_degrees": 89.05281217736113
+      }
+    ]
+  }
+}

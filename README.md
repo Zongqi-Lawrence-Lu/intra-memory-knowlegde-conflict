@@ -29,7 +29,9 @@ eval/             M3: shared eval harness -- per-fact recall scoring against tra
 prompting/        M5 (not yet built): baseline class (i), prompting-based mitigation
 inference_time/   M6 (in progress): baseline class (ii), inference-time interference
 training_time/    M7 (in progress): baseline class (iii), training-time interference
-mech_interp/      M8 (not yet built): novel technique / mechanistic localization
+mech_interp/      M8 (built, not yet run): representational/causal localization +
+                  continuous steering dial, kept separate from inference_time/'s
+                  already-shipped mitigations
 ```
 
 ## training/
