@@ -24,6 +24,18 @@ avoids near-duplicating already-accepted paragraphs, even though it is written t
 its own files and the main bank is never modified.
 
     python -m preprocess.generate_vignettes --output-dir preprocess/data_pools/vignettes_batch2
+
+For a further batch, pass each earlier batch's directory via --context-dir (repeatable)
+so the new batch's de-dup context spans every prior batch, not just the main bank:
+
+    python -m preprocess.generate_vignettes --output-dir preprocess/data_pools/vignettes_batch3 \
+        --context-dir preprocess/data_pools/vignettes_batch2
+
+--total-variants overrides the per-(entity, side) target for this run, recomputed via
+the same proportional split (preprocess/scheduler.py:variants_per_side) rather than
+reading the fixed 8-total v_a/v_b baked into population.json -- e.g. --total-variants 16
+requests a fresh batch of 16 new variants/entity (same A/B proportions, just doubled)
+in one job instead of two separate +8 runs.
 """
 from __future__ import annotations
 
@@ -37,6 +49,7 @@ from pathlib import Path
 from preprocess.generation.client import DEFAULT_MODEL, preflight_check
 from preprocess.prompts import vignette_prompt
 from preprocess.schema import RELATION_BY_KEY
+from preprocess.scheduler import variants_per_side
 
 RESULTS_POPULATION_PATH = Path(__file__).parent.parent / "results" / "population.json"
 VIGNETTES_DIR = Path(__file__).parent / "data_pools" / "vignettes"
@@ -90,11 +103,16 @@ def facts_for_side(entity: dict, side: str) -> list[tuple[str, str]]:
     return facts
 
 
-def target_variants(entity: dict, side: str) -> int:
-    """Per-(entity, side) variant target from population.json's v_a/v_b
-    (preprocess/scheduler.py:variants_per_side) -- not a flat constant."""
+def target_variants(entity: dict, side: str, total_variants: int | None = None) -> int:
+    """Per-(entity, side) variant target. Defaults to population.json's stored v_a/v_b
+    (the fixed 8-total split); total_variants overrides this by recomputing the same
+    proportional split (preprocess/scheduler.py:variants_per_side) at a different
+    total, e.g. 16 for a single double-size batch."""
     contested = entity["contested"]
-    return contested["v_a"] if side == "A" else contested["v_b"]
+    if total_variants is None:
+        return contested["v_a"] if side == "A" else contested["v_b"]
+    v_a, v_b = variants_per_side(contested["n_a"], contested["n_b"], total_variants)
+    return v_a if side == "A" else v_b
 
 
 def already_done(entity_id: str, side: str, target: int, directory: Path = VIGNETTES_DIR) -> bool:
@@ -117,6 +135,7 @@ async def generate_one(
     temperature: float,
     semaphore: asyncio.Semaphore,
     output_dir: Path = VIGNETTES_DIR,
+    context_dirs: tuple[Path, ...] = (),
 ) -> tuple[str, str, int]:
     """Returns (entity_id, side, n_variants_written). n_variants is this pair's
     target (population.json v_a/v_b). Tops up rather than replaces: existing
@@ -129,9 +148,10 @@ async def generate_one(
 
     De-dup context shown to the model (the prompt's `existing`) is the union of
     what's already at output_dir plus, when output_dir is not the main bank, the
-    main bank's own accepted variants -- so a separate batch (output_dir !=
-    VIGNETTES_DIR) still avoids near-duplicating already-accepted paragraphs even
-    though it is never written into the main bank."""
+    main bank's own accepted variants, plus any other prior batches passed via
+    context_dirs (e.g. an already-generated batch2 when generating batch3) -- so a
+    separate batch still avoids near-duplicating paragraphs from every earlier
+    batch, even though it is never written into any of them."""
     entity_id = entity["entity_id"]
     name = entity["name"]
     facts = facts_for_side(entity, side)
@@ -139,11 +159,15 @@ async def generate_one(
     needed = n_variants - len(output_existing)
     if needed <= 0:
         return entity_id, side, len(output_existing)
-    if output_dir != VIGNETTES_DIR:
-        main_existing = load_variants(entity_id, side, VIGNETTES_DIR)
-        context_existing = output_existing + [v for v in main_existing if v not in output_existing]
-    else:
-        context_existing = output_existing
+    context_existing = list(output_existing)
+    seen = set(output_existing)
+    for other_dir in (VIGNETTES_DIR, *context_dirs):
+        if other_dir == output_dir:
+            continue
+        for v in load_variants(entity_id, side, other_dir):
+            if v not in seen:
+                context_existing.append(v)
+                seen.add(v)
     prompt = vignette_prompt(name, facts, n_variants=needed, existing=context_existing)
 
     async with semaphore:
@@ -199,6 +223,8 @@ async def run(
     concurrency: int,
     limit: int | None = None,
     output_dir: Path = VIGNETTES_DIR,
+    context_dirs: tuple[Path, ...] = (),
+    total_variants: int | None = None,
 ) -> None:
     import openai
 
@@ -209,7 +235,7 @@ async def run(
         (entity, side)
         for entity in population
         for side in ("A", "B")
-        if not already_done(entity["entity_id"], side, target_variants(entity, side), output_dir)
+        if not already_done(entity["entity_id"], side, target_variants(entity, side, total_variants), output_dir)
     ]
     total = len(population) * 2
     skipped = total - len(tasks_needed)
@@ -228,9 +254,9 @@ async def run(
 
     async def _run_one(entity, side):
         nonlocal completed
-        n_variants = target_variants(entity, side)
+        n_variants = target_variants(entity, side, total_variants)
         result = await generate_one(
-            client, entity, side, n_variants, model, temperature, semaphore, output_dir
+            client, entity, side, n_variants, model, temperature, semaphore, output_dir, context_dirs
         )
         async with lock:
             completed += 1
@@ -256,7 +282,7 @@ async def run(
             continue
         results.append(r)
         _, _, n = r
-        if n < target_variants(entity, side):
+        if n < target_variants(entity, side, total_variants):
             n_short += 1
     print(
         f"\nDone: {len(results)}/{len(tasks_needed)} generated ({len(tasks_needed) - len(results)} errored), "
@@ -281,10 +307,43 @@ def main() -> None:
             "written to."
         ),
     )
+    parser.add_argument(
+        "--context-dir",
+        type=Path,
+        action="append",
+        default=[],
+        dest="context_dirs",
+        help=(
+            "Additional directory to read as de-dup context (besides the main "
+            "bank and --output-dir itself), e.g. a prior batch's directory when "
+            "generating a further batch. Repeatable."
+        ),
+    )
+    parser.add_argument(
+        "--total-variants",
+        type=int,
+        default=None,
+        help=(
+            "Override the per-(entity, side) target for this run, recomputed via "
+            "the same proportional A/B split at this total instead of "
+            "population.json's stored (fixed 8-total) v_a/v_b -- e.g. 16 for a "
+            "single double-size batch."
+        ),
+    )
     args = parser.parse_args()
 
     preflight_check(args.model)
-    asyncio.run(run(args.model, args.temperature, args.concurrency, args.limit, args.output_dir))
+    asyncio.run(
+        run(
+            args.model,
+            args.temperature,
+            args.concurrency,
+            args.limit,
+            args.output_dir,
+            tuple(args.context_dirs),
+            args.total_variants,
+        )
+    )
 
 
 if __name__ == "__main__":
